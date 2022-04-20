@@ -200,73 +200,6 @@ err:
 }
 
 /*
- * Receive data on a socket.
- */
-static int ftp_receive_data(struct ftp_server *ftp_server, struct socket *sock_data, struct ftp_buffer *ftp_buf)
-{
-  struct socket *sock = NULL;
-  struct msghdr msg;
-  struct kvec iov;
-  int ret, n;
-
-  /* create a new socket */
-  ret = sock_create_lite(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
-  if (ret)
-    goto out;
-
-  /* set news socket operations */
-  sock->ops = sock_data->ops;
-
-  /* accept connection */
-  ret = sock_data->ops->accept(sock_data, sock, 0, 1);
-  if (ret)
-    goto out;
-
-  /* prepare message */
-  memset(&msg, 0, sizeof(struct msghdr));
-  iov.iov_base = ftp_server->ftp_buf;
-  iov.iov_len = PAGE_SIZE;
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-
-  /* get data */
-  for (;;) {
-    /* get next buffer */
-    n = kernel_recvmsg(sock, &msg, &iov, 1, iov.iov_len, 0);
-    if (n < 0) {
-      ret = n;
-      goto out;
-    }
-
-    /* end of data */
-    if (!n)
-      break;
-
-    /* grow buffer if needed */
-    if (ftp_buf->len + n > ftp_buf->capacity) {
-      ftp_buf->data = (char *) krealloc(ftp_buf->data, ftp_buf->capacity + PAGE_SIZE, GFP_KERNEL);
-      if (!ftp_buf->data) {
-        ret = -ENOMEM;
-        goto out;
-      }
-
-      ftp_buf->capacity += PAGE_SIZE;
-    }
-
-    /* copy to ftp buffer */
-    memcpy(ftp_buf->data + ftp_buf->len, ftp_server->ftp_buf, n);
-    ftp_buf->len += n;
-  }
-
-out:
-  /* close socket */
-  if (sock)
-    sock->ops->release(sock);
-
-  return ret;
-}
-
-/*
  * Create a FTP server.
  */
 struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user, const char *ftp_passwd)
@@ -534,8 +467,10 @@ err:
  */
 int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *ftp_buf)
 {
-  struct socket *sock_data;
-  int ret = 0;
+  struct socket *sock_data, *sock = NULL;
+  struct msghdr msg;
+  struct kvec iov;
+  int n, ret = 0;
   
   /* lock server */
   spin_lock(&ftp_server->ftp_lock);
@@ -554,22 +489,74 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
     goto out;
   }
   
-  /* receive data */
-  ret = ftp_receive_data(ftp_server, sock_data, ftp_buf);
+  /* create a new socket */
+  ret = sock_create_lite(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
   if (ret)
     goto out;
-  
-  /* get FTP reply */
-  if (ftp_getreply(ftp_server) != FTP_STATUS_OK) {
-    ret = -ENOSPC;
+
+  /* set news socket operations */
+  sock->ops = sock_data->ops;
+
+  /* accept connection */
+  ret = sock_data->ops->accept(sock_data, sock, 0, 1);
+  if (ret)
     goto out;
+
+  /* prepare message */
+  memset(&msg, 0, sizeof(struct msghdr));
+  iov.iov_base = ftp_server->ftp_buf;
+  iov.iov_len = PAGE_SIZE;
+  msg.msg_control = NULL;
+  msg.msg_controllen = 0;
+
+  /* get data and copy it to output buffer */
+  for (;;) {
+    /* get next buffer */
+    n = kernel_recvmsg(sock, &msg, &iov, 1, iov.iov_len, 0);
+    if (n < 0) {
+      ret = n;
+      goto out;
+    }
+
+    /* end of data */
+    if (!n)
+      break;
+
+    /* grow buffer if needed */
+    if (ftp_buf->len + n > ftp_buf->capacity) {
+      ftp_buf->data = (char *) krealloc(ftp_buf->data, ftp_buf->capacity + PAGE_SIZE, GFP_KERNEL);
+      if (!ftp_buf->data) {
+        ret = -ENOMEM;
+        goto out;
+      }
+
+      ftp_buf->capacity += PAGE_SIZE;
+    }
+
+    /* copy to ftp buffer */
+    memcpy(ftp_buf->data + ftp_buf->len, ftp_server->ftp_buf, n);
+    ftp_buf->len += n;
   }
-  
+
 out:
+  /* close socket */
+  if (sock)
+    sock->ops->release(sock);
+
   /* close data socket */
   if (sock_data && sock_data->ops)
     sock_data->ops->release(sock_data);
-  
+
+  /* get FTP reply */
+  if (ftp_getreply(ftp_server) != FTP_STATUS_OK) {
+    /* free FTP buffer */
+    if (ftp_buf->data)
+      kfree(ftp_buf->data);
+    memset(ftp_buf, 0, sizeof(struct ftp_buffer));
+
+    ret = -ENOSPC;
+  }
+
   /* release server */
   spin_unlock(&ftp_server->ftp_lock);
   return ret;

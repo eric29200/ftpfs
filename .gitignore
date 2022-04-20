@@ -1,0 +1,8 @@
+*.o
+*.cmd
+*.ko
+ftpfs.mod
+ftpfs.mod.c
+Module.symvers
+modules.order
+mnt

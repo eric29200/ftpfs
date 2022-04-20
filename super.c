@@ -62,8 +62,6 @@ static struct inode *ftpfs_alloc_inode(struct super_block *sb)
  */
 static void ftpfs_free_inode(struct inode *inode)
 {
-  printk(KERN_ALERT "FREE INODE\n");
-  
   /* free cached data */
   if (ftpfs_i(inode)->i_cache.data)
     kfree(ftpfs_i(inode)->i_cache.data);

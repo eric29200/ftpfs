@@ -28,6 +28,7 @@ struct ftp_server {
   struct socket       *ftp_sock;                                  /* connected socket */
   struct sockaddr_in  ftp_saddr;                                  /* FTP server address */
   char                *ftp_buf;                                   /* FTP server buffer (used to receive/send messages) */
+  spinlock_t          ftp_lock;                                   /* FTP server lock */
 };
 
 /*

@@ -156,41 +156,41 @@ static struct socket *ftp_open_data_socket(struct ftp_server *ftp_server)
 {
   struct socket *sock = NULL;
   struct sockaddr_in sa;
-  char buf[256];
-  int err;
+  int err = -ENOSPC;
+  int p[6], i;
+  char *s;
 
-  /* get FTP socket control name */
-  err = ftp_server->ftp_sock->ops->getname(ftp_server->ftp_sock, (struct sockaddr *) &sa, 0);
-  if (err < 0)
+  /* request passive mode */
+  if (ftp_cmd(ftp_server, "PASV", NULL) != FTP_STATUS_OK)
     goto err;
+
+  /* parse FTP server reply : skip first characters = status code */
+  for(i = 0, s = ftp_server->ftp_buf; i < 4 && *s; i++, s++);
+  if (!*s)
+    goto err;
+
+  /* skip characters until digit */
+  for (; *s && !isdigit(*s); s++);
+
+  /* parse FTP server reply */
+  if (sscanf(s, "%d,%d,%d,%d,%d,%d", &p[0], &p[1], &p[2], &p[3], &p[4], &p[5]) != 6)
+    goto err;
+
+  /* set socket address */
+  sa.sin_family = AF_INET;
+  for (i = 0; i < 4; i++)
+    ((unsigned char *) &sa.sin_addr)[i] = p[i];
+  sa.sin_port = htons((p[4] << 8) + p[5]);
 
   /* create a new socket */
   err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
   if (err)
     goto err;
 
-  /* bind socket (on dynamic port) */
-  sa.sin_port = 0;
-  err = sock->ops->bind(sock, (struct sockaddr *) &sa, sizeof(struct sockaddr_in));
+  /* connect to socket */
+  err = sock->ops->connect(sock, (struct sockaddr *) &sa, sizeof(struct sockaddr_in), O_RDWR);
   if (err)
     goto err;
-
-  /* listen on socket */
-  err = sock->ops->listen(sock, 0);
-  if (err)
-    goto err;
-
-  /* get dynamic allocated port */
-  err = sock->ops->getname(sock, (struct sockaddr *) &sa, 0);
-  if (err < 0)
-    goto err;
-
-  /* send EPRT command */
-  snprintf(buf, sizeof(buf), "|1|%pI4|%d|", &sa.sin_addr.s_addr, ntohs(sa.sin_port));
-  if (ftp_cmd(ftp_server, "EPRT", buf) != FTP_STATUS_OK) {
-    err = -ENOSPC;
-    goto err;
-  }
 
   return sock;
 err:
@@ -467,7 +467,7 @@ err:
  */
 int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *ftp_buf)
 {
-  struct socket *sock_data, *sock = NULL;
+  struct socket *sock_data;
   struct msghdr msg;
   struct kvec iov;
   int n, ret = 0;
@@ -489,19 +489,6 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
     goto out;
   }
   
-  /* create a new socket */
-  ret = sock_create_lite(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
-  if (ret)
-    goto out;
-
-  /* set news socket operations */
-  sock->ops = sock_data->ops;
-
-  /* accept connection */
-  ret = sock_data->ops->accept(sock_data, sock, 0, 1);
-  if (ret)
-    goto out;
-
   /* prepare message */
   memset(&msg, 0, sizeof(struct msghdr));
   iov.iov_base = ftp_server->ftp_buf;
@@ -512,7 +499,7 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
   /* get data and copy it to output buffer */
   for (;;) {
     /* get next buffer */
-    n = kernel_recvmsg(sock, &msg, &iov, 1, iov.iov_len, 0);
+    n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
     if (n < 0) {
       ret = n;
       goto out;
@@ -539,10 +526,6 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
   }
 
 out:
-  /* close socket */
-  if (sock)
-    sock->ops->release(sock);
-
   /* close data socket */
   if (sock_data && sock_data->ops)
     sock_data->ops->release(sock_data);

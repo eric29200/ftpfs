@@ -225,8 +225,8 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
   if (!ftp_server)
     return ERR_PTR(-ENOMEM);
 
-  /* init server lock */
-  spin_lock_init(&ftp_server->ftp_lock);
+  /* init server mutex */
+  mutex_init(&ftp_server->ftp_mutex);
 
   /* set FTP server name, user and password */
   strncpy(ftp_server->ftp_sname, ftp_sname, FTP_SERVER_MAX_LEN - 1);
@@ -271,7 +271,7 @@ int ftp_connect(struct ftp_server *ftp_server)
   int err;
   
   /* lock server */
-  spin_lock(&ftp_server->ftp_lock);
+  mutex_lock(&ftp_server->ftp_mutex);
 
   /* reset server socket */
   if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops) {
@@ -315,14 +315,14 @@ int ftp_connect(struct ftp_server *ftp_server)
     goto err;
   
   /* release server */
-  spin_unlock(&ftp_server->ftp_lock);
+  mutex_unlock(&ftp_server->ftp_mutex);
   return 0;
 err:
   if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
     ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
   
   /* release server */
-  spin_unlock(&ftp_server->ftp_lock);
+  mutex_unlock(&ftp_server->ftp_mutex);
   return err;
 }
 
@@ -483,7 +483,7 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
   int n, ret = 0;
   
   /* lock server */
-  spin_lock(&ftp_server->ftp_lock);
+  mutex_lock(&ftp_server->ftp_mutex);
 
   /* open a data socket */
   sock_data = ftp_open_data_socket(ftp_server);
@@ -547,7 +547,7 @@ out_release_sock:
   }
 
 out:
-  spin_unlock(&ftp_server->ftp_lock);
+  mutex_unlock(&ftp_server->ftp_mutex);
   return ret;
 }
 
@@ -564,7 +564,7 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
   loff_t off;
 
   /* lock server */
-  spin_lock(&ftp_server->ftp_lock);
+  mutex_lock(&ftp_server->ftp_mutex);
 
   /* open a data socket */
   sock_data = ftp_open_data_socket(ftp_server);
@@ -630,7 +630,7 @@ out_release_sock:
 
 out:
   /* release server */
-  spin_unlock(&ftp_server->ftp_lock);
+  mutex_unlock(&ftp_server->ftp_mutex);
 
   return ret;
 }

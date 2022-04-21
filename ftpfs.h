@@ -5,7 +5,6 @@
 
 #include "ftp.h"
 
-#define FTPFS_FTP_SERVER          "ftp.fr.debian.org"
 #define FTPFS_FTP_USER            "anonymous"
 #define FTPFS_FTP_PASSWD          "anonymous"
 

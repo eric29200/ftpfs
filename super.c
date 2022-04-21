@@ -2,6 +2,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/vfs.h>
+#include <linux/fs_context.h>
 
 #include "ftpfs.h"
 
@@ -119,7 +120,7 @@ static struct super_operations ftpfs_sops = {
 /*
  * Fill in a FTPFS super block.
  */
-static int ftpfs_fill_super(struct super_block *sb, void *data, int silent)
+static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
   struct ftp_fattr root_fattr;
   struct ftpfs_sb_info *sbi;
@@ -132,7 +133,7 @@ static int ftpfs_fill_super(struct super_block *sb, void *data, int silent)
     return -ENOMEM;
   
   /* create FTP server */
-  sbi->s_ftp_server = ftp_server_create(FTPFS_FTP_SERVER, FTPFS_FTP_USER, FTPFS_FTP_PASSWD);
+  sbi->s_ftp_server = ftp_server_create(fc->source, FTPFS_FTP_USER, FTPFS_FTP_PASSWD);
   if (IS_ERR(sbi->s_ftp_server)) {
     err = PTR_ERR(sbi->s_ftp_server);
     goto err_ftp_server_create;
@@ -164,15 +165,15 @@ static int ftpfs_fill_super(struct super_block *sb, void *data, int silent)
   
   return 0;
 err_no_root:
-  printk("FTPFS : can't get root inode\n");
+  printk(KERN_ERR "FTPFS : can't get root inode\n");
   goto err_free_ftp_server;
 err_ftp_connect:
-  printk("FTPFS : can't connect to FTP server\n");
+  printk(KERN_ERR "FTPFS : can't connect to FTP server \"%s\"\n", fc->source);
 err_free_ftp_server:
   ftp_server_free(sbi->s_ftp_server);
   goto err;
 err_ftp_server_create:
-  printk("FTPFS : can't create FTP server\n");
+  printk(KERN_ERR "FTPFS : can't create FTP server \"%s\"\n", fc->source);
 err:
   kfree(sbi);
   sb->s_fs_info = NULL;
@@ -180,21 +181,37 @@ err:
 }
 
 /*
- * Mount a FTPFS file system.
+ * Get FTPFS tree = mount file system.
  */
-static struct dentry *ftpfs_mount(struct file_system_type *fs_type, int flags, const char *dev_name, void *data)
+static int ftpfs_fc_get_tree(struct fs_context *fc)
 {
-  return mount_nodev(fs_type, flags, data, ftpfs_fill_super);
+  return get_tree_nodev(fc, ftpfs_fill_super);
+}
+
+/*
+ * FTPFS context operations.
+ */
+static struct fs_context_operations ftpfs_context_ops = {
+  .get_tree               = ftpfs_fc_get_tree,
+};
+
+/*
+ * Init a FTPFS file system context.
+ */
+int ftpfs_init_fs_context(struct fs_context *fc)
+{
+  fc->ops = &ftpfs_context_ops;
+  return 0;
 }
 
 /*
  * FTPFS file system type.
  */
 static struct file_system_type ftpfs_type = {
-  .owner          = THIS_MODULE,
-  .name           = "ftpfs",
-  .mount          = ftpfs_mount,
-  .kill_sb        = kill_anon_super,
+  .owner                = THIS_MODULE,
+  .name                 = "ftpfs",
+  .init_fs_context      = ftpfs_init_fs_context,
+  .kill_sb              = kill_anon_super,
 };
 
 /*

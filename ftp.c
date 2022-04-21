@@ -31,9 +31,12 @@ static int ftp_getline(struct ftp_server *ftp_server, struct socket *sock)
   
   /* get line */
   for (n = 0;;) {
+repeat_recvmsg:
     /* read next character */
     err = kernel_recvmsg(sock, &msg, &iov, 1, iov.iov_len, 0);
-    if (err < 0)
+    if (err == -ERESTARTSYS)
+      goto repeat_recvmsg;
+    else if (err < 0)
       return err;
     
     /* end of message */
@@ -114,9 +117,12 @@ static int ftp_cmd(struct ftp_server *ftp_server, const char *cmd, const char *a
   msg.msg_control = NULL;
   msg.msg_controllen = 0;
   
+repeat_send:
   /* send message */
   err = kernel_sendmsg(ftp_server->ftp_sock, &msg, &iov, 1, iov.iov_len);
-  if (err < 0)
+  if (err == -ERESTARTSYS)
+    goto repeat_send;
+  else if (err < 0)
     return err;
   else if (err != iov.iov_len)
     return FTP_STATUS_KO;
@@ -502,9 +508,12 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
 
   /* get data and copy it to output buffer */
   for (;;) {
+repeat_recvmsg:
     /* get next buffer */
     n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
-    if (n <= 0)
+    if (n == -ERESTARTSYS)
+      goto repeat_recvmsg;
+    else if (n <= 0)
       break;
 
     /* grow buffer if needed */
@@ -591,9 +600,12 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
     iov.iov_base = ftp_server->ftp_buf;
     iov.iov_len = count <= PAGE_SIZE ? count : PAGE_SIZE;
 
+repeat_recvmsg:
     /* get next buffer */
     n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
-    if (n <= 0)
+    if (n == -ERESTARTSYS)
+      goto repeat_recvmsg;
+    else if (n <= 0)
       break;
 
     /* copy to output buffer */

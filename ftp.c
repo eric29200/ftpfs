@@ -486,7 +486,7 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
   /* send list command */
   if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT) {
     ret = -ENOSPC;
-    goto out;
+    goto out_release_sock;
   }
   
   /* prepare message */
@@ -500,13 +500,7 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
   for (;;) {
     /* get next buffer */
     n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
-    if (n < 0) {
-      ret = n;
-      goto out;
-    }
-
-    /* end of data */
-    if (!n)
+    if (n <= 0)
       break;
 
     /* grow buffer if needed */
@@ -514,7 +508,7 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
       ftp_buf->data = (char *) krealloc(ftp_buf->data, ftp_buf->capacity + PAGE_SIZE, GFP_KERNEL);
       if (!ftp_buf->data) {
         ret = -ENOMEM;
-        goto out;
+        break;
       }
 
       ftp_buf->capacity += PAGE_SIZE;
@@ -525,10 +519,9 @@ int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *
     ftp_buf->len += n;
   }
 
-out:
+out_release_sock:
   /* close data socket */
-  if (sock_data && sock_data->ops)
-    sock_data->ops->release(sock_data);
+  sock_data->ops->release(sock_data);
 
   /* get FTP reply */
   if (ftp_getreply(ftp_server) != FTP_STATUS_OK) {
@@ -540,7 +533,7 @@ out:
     ret = -ENOSPC;
   }
 
-  /* release server */
+out:
   spin_unlock(&ftp_server->ftp_lock);
   return ret;
 }
@@ -573,14 +566,14 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
     snprintf(nb_buf, 64, "%lld", *pos);
     if (ftp_cmd(ftp_server, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
       ret = -ENOSPC;
-      goto out;
+      goto out_release_sock;
     }
   }
 
   /* send list command */
   if (ftp_cmd(ftp_server, "RETR", file_path) != FTP_STATUS_OK_INIT) {
     ret = -ENOSPC;
-    goto out;
+    goto out_release_sock;
   }
 
   /* prepare message */
@@ -612,14 +605,14 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
   /* return number of bytes read */
   ret = off;
 
-out:
+out_release_sock:
   /* close data socket */
-  if (sock_data && sock_data->ops)
-    sock_data->ops->release(sock_data);
+  sock_data->ops->release(sock_data);
 
   /* get FTP reply */
   ftp_getreply(ftp_server);
 
+out:
   /* release server */
   spin_unlock(&ftp_server->ftp_lock);
 

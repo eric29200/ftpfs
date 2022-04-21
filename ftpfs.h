@@ -21,6 +21,7 @@ struct ftpfs_sb_info {
 struct ftpfs_inode_info {
   char                            *i_path;              /* inode full path */
   struct ftp_buffer               i_cache;              /* cached data */
+  struct mutex                    i_cache_mutex;        /* cached data mutex */
   struct inode                    vfs_inode;            /* VFS inode */
 };
 

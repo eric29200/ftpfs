@@ -10,10 +10,14 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
   struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
   struct super_block *sb = inode->i_sb;
   size_t link_len;
+  int ret = 0;
+
+  /* lock cache */
+  mutex_lock(&ftpfs_inode->i_cache_mutex);
 
   /* data cache already set */
   if (ftpfs_inode->i_cache.data)
-    return 0;
+    goto out;
 
   /* symbolic link : load target in cache */
   if (S_ISLNK(inode->i_mode)) {
@@ -21,8 +25,10 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
     if (link_len > 0) {
       /* allocate inode cache (to store target link) */
       ftpfs_inode->i_cache.data = (char *) kmalloc(link_len + 1, GFP_KERNEL);
-      if (!ftpfs_inode->i_cache.data)
-        return -ENOMEM;
+      if (!ftpfs_inode->i_cache.data) {
+        ret = -ENOMEM;
+        goto out;
+      }
 
       /* copy target link to inode cache */
       ftpfs_inode->i_cache.len = link_len;
@@ -31,14 +37,16 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
       ftpfs_inode->i_cache.data[link_len] = 0;
     }
 
-    return 0;
+    goto out;
   }
 
   /* directory : load listing in cache */
   if (S_ISDIR(inode->i_mode))
-    return ftp_list(ftpfs_sb(sb)->s_ftp_server, ftpfs_inode->i_path, &ftpfs_inode->i_cache);
+    ret = ftp_list(ftpfs_sb(sb)->s_ftp_server, ftpfs_inode->i_path, &ftpfs_inode->i_cache);
 
-  return 0;
+out:
+  mutex_unlock(&ftpfs_inode->i_cache_mutex);
+  return ret;
 }
 
 
@@ -97,6 +105,7 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
   inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
   set_nlink(inode, fattr->f_nlinks);
   inode->i_size = fattr->f_size;
+  mutex_init(&ftpfs_i(inode)->i_cache_mutex);
   
   /* set time */
   if (fattr->f_time) {

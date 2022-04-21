@@ -67,7 +67,9 @@ static int ftp_getreply(struct ftp_server *ftp_server)
   for (i = 0;; i++) {
     /* get next line */
     n = ftp_getline(ftp_server, ftp_server->ftp_sock);
-    if (n <= 0)
+    if (n < 0)
+      return n;
+    else if (n == 0)
       return FTP_STATUS_KO;
     
     /* break on FTP status message */
@@ -114,7 +116,9 @@ static int ftp_cmd(struct ftp_server *ftp_server, const char *cmd, const char *a
   
   /* send message */
   err = kernel_sendmsg(ftp_server->ftp_sock, &msg, &iov, 1, iov.iov_len);
-  if (err != iov.iov_len)
+  if (err < 0)
+    return err;
+  else if (err != iov.iov_len)
     return FTP_STATUS_KO;
   
   /* return FTP reply */

@@ -544,3 +544,84 @@ out:
   spin_unlock(&ftp_server->ftp_lock);
   return ret;
 }
+
+/*
+ * Read data from a FTP server.
+ */
+int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *buf, size_t count, loff_t *pos)
+{
+  struct socket *sock_data;
+  struct msghdr msg;
+  struct kvec iov;
+  char nb_buf[64];
+  int n, ret = 0;
+  loff_t off;
+
+  /* lock server */
+  spin_lock(&ftp_server->ftp_lock);
+
+  /* open a data socket */
+  sock_data = ftp_open_data_socket(ftp_server);
+  if (IS_ERR(sock_data)) {
+    ret = PTR_ERR(sock_data);
+    sock_data = NULL;
+    goto out;
+  }
+
+  /* send restore command */
+  if (*pos) {
+    snprintf(nb_buf, 64, "%lld", *pos);
+    if (ftp_cmd(ftp_server, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
+      ret = -ENOSPC;
+      goto out;
+    }
+  }
+
+  /* send list command */
+  if (ftp_cmd(ftp_server, "RETR", file_path) != FTP_STATUS_OK_INIT) {
+    ret = -ENOSPC;
+    goto out;
+  }
+
+  /* prepare message */
+  memset(&msg, 0, sizeof(struct msghdr));
+  msg.msg_control = NULL;
+  msg.msg_controllen = 0;
+
+  /* get data and copy it to output buffer */
+  for (off = 0; count > 0;) {
+    /* set buffer */
+    iov.iov_base = ftp_server->ftp_buf;
+    iov.iov_len = count <= PAGE_SIZE ? count : PAGE_SIZE;
+
+    /* get next buffer */
+    n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
+    if (n <= 0)
+      break;
+
+    /* copy to output buffer */
+    if (copy_to_user(buf + off, ftp_server->ftp_buf, n))
+      break;
+
+    /* update position */
+    off += n;
+    *pos += n;
+    count -= n;
+  }
+
+  /* return number of bytes read */
+  ret = off;
+
+out:
+  /* close data socket */
+  if (sock_data && sock_data->ops)
+    sock_data->ops->release(sock_data);
+
+  /* get FTP reply */
+  ftp_getreply(ftp_server);
+
+  /* release server */
+  spin_unlock(&ftp_server->ftp_lock);
+
+  return ret;
+}

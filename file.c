@@ -5,7 +5,7 @@
  */
 ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
-  return -EPERM;
+  return ftp_read(ftpfs_sb(file->f_inode->i_sb)->s_ftp_server, ftpfs_i(file->f_inode)->i_path, buf, count, pos);
 }
 
 /*

@@ -58,5 +58,6 @@ void ftp_server_free(struct ftp_server *ftp_server);
 int ftp_connect(struct ftp_server *ftp_server);
 int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *ftp_buf);
 int ftp_parse_dir_entry(char *line, int len, struct ftp_fattr *fattr);
+int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *buf, size_t count, loff_t *pos);
 
 #endif

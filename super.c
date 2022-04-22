@@ -295,7 +295,6 @@ static int __init ftpfs_init(void)
   }
   
   return 0;
-
 }
 
 /*

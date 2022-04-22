@@ -7,6 +7,7 @@
 
 #define FTPFS_FTP_USER            "anonymous"
 #define FTPFS_FTP_PASSWD          "anonymous"
+#define FTPFS_CACHE_EXPIRES_MS    60000
 
 /*
  * FTPFS in memory super block.
@@ -22,6 +23,7 @@ struct ftpfs_inode_info {
   char                            *i_path;              /* inode full path */
   struct ftp_buffer               i_cache;              /* cached data */
   struct rw_semaphore             i_cache_rw_sem;       /* cache read/write semaphore */
+  unsigned long                   i_cache_expires;
   struct inode                    vfs_inode;            /* VFS inode */
 };
 

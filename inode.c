@@ -16,8 +16,15 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
   down_write(&ftpfs_inode->i_cache_rw_sem);
 
   /* data cache already set */
-  if (ftpfs_inode->i_cache.data)
-    goto out;
+  if (ftpfs_inode->i_cache.data) {
+    /* cache is still valid : exit */
+    if (jiffies < ftpfs_inode->i_cache_expires)
+      goto out;
+
+    /* cache is not valid anymore : reset it */
+    kfree(ftpfs_inode->i_cache.data);
+    memset(&ftpfs_inode->i_cache, 0, sizeof(struct ftp_buffer));
+  }
 
   /* symbolic link : load target in cache */
   if (S_ISLNK(inode->i_mode)) {
@@ -27,7 +34,7 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
       ftpfs_inode->i_cache.data = (char *) kmalloc(link_len + 1, GFP_KERNEL);
       if (!ftpfs_inode->i_cache.data) {
         ret = -ENOMEM;
-        goto out;
+        goto out_update_timeout;
       }
 
       /* copy target link to inode cache */
@@ -37,14 +44,18 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
       ftpfs_inode->i_cache.data[link_len] = 0;
     }
 
-    goto out;
+    goto out_update_timeout;
   }
 
   /* directory : load listing in cache */
   if (S_ISDIR(inode->i_mode))
     ret = ftp_list(ftpfs_sb(sb)->s_ftp_server, ftpfs_inode->i_path, &ftpfs_inode->i_cache);
 
+out_update_timeout:
+  /* update cache timeout */
+  ftpfs_inode->i_cache_expires = jiffies + msecs_to_jiffies(FTPFS_CACHE_EXPIRES_MS);
 out:
+  /* release cache semaphore */
   up_write(&ftpfs_inode->i_cache_rw_sem);
   return ret;
 }

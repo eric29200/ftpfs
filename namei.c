@@ -19,12 +19,12 @@ static int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp
   char *start, *end, *line = NULL;
   struct ftp_fattr fattr;
   size_t off, rem;
-  int err;
+  int ret;
   
   /* load inode data into cache = directory listing */
-  err = ftpfs_load_inode_data(dir, NULL);
-  if (err)
-    return err;
+  ret = ftpfs_load_inode_data(dir, NULL);
+  if (ret)
+    goto out;
   
   /* parse all directory entries */
   for (off = 0; off < ftpfs_i(dir)->i_cache.len;) {
@@ -43,22 +43,23 @@ static int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp
   
     /* allocate line */
     line = (char *) kmalloc(end - start + 1, GFP_KERNEL);
-    if (!line)
-      return -ENOMEM;
+    if (!line) {
+      ret = -ENOMEM;
+      goto out;
+    }
     
     /* copy line */
     strncpy(line, start, end - start);
     line[end - start] = 0;
     
     /* parse line */
-    err = ftp_parse_dir_entry(line, end - start, &fattr);
-    if (err)
+    if (ftp_parse_dir_entry(line, end - start, &fattr) != 0)
       goto next_line;
     
-    /* check file name */
+    /* file name matches : save attributes and exit */
     if (ftpfs_name_match(&fattr, dentry)) {
       memcpy(fattr_res, &fattr, sizeof(struct ftp_fattr));
-      break;
+      goto out;
     }
     
 next_line:
@@ -71,12 +72,14 @@ next_line:
     /* go to next line */
     off = end - ftpfs_i(dir)->i_cache.data + (*end == '\r' ? 2 : 1);
   }
-  
+
+  ret = -ENOENT;
+out: 
   /* free last line */
   if (line)
     kfree(line);
   
-  return 0;
+  return ret;
 }
 
 /*

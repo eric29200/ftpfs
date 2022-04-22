@@ -15,14 +15,14 @@ static struct kmem_cache *ftpfs_inode_cache;
  */
 static int ftpfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
-  struct super_block *sb = dentry->d_sb;
-  
-  memset(buf, 0, sizeof(struct kstatfs));
-  buf->f_type = sb->s_magic;
-  buf->f_bsize = sb->s_blocksize;
-  buf->f_blocks = 1;
-  
-  return 0;
+	struct super_block *sb = dentry->d_sb;
+
+	memset(buf, 0, sizeof(struct kstatfs));
+	buf->f_type = sb->s_magic;
+	buf->f_bsize = sb->s_blocksize;
+	buf->f_blocks = 1;
+
+	return 0;
 }
 
 /*
@@ -30,13 +30,13 @@ static int ftpfs_statfs(struct dentry *dentry, struct kstatfs *buf)
  */
 static void ftpfs_put_super(struct super_block *sb)
 {
-  struct ftpfs_sb_info *sbi = ftpfs_sb(sb);
-  
-  /* free FTP server */
-  ftp_server_free(sbi->s_ftp_server);
-  
-  /* free FTPFS super block */
-  kfree(sbi);
+	struct ftpfs_sb_info *sbi = ftpfs_sb(sb);
+
+	/* free FTP server */
+	ftp_server_free(sbi->s_ftp_server);
+
+	/* free FTPFS super block */
+	kfree(sbi);
 }
 
 
@@ -45,14 +45,14 @@ static void ftpfs_put_super(struct super_block *sb)
  */
 static struct inode *ftpfs_alloc_inode(struct super_block *sb)
 {
-  struct ftpfs_inode_info *ftpfs_inode;
-  
-  /* allocate a new inode */
-  ftpfs_inode = kmem_cache_alloc(ftpfs_inode_cache, GFP_KERNEL);
-  if (!ftpfs_inode)
-    return NULL;
-  
-  return &ftpfs_inode->vfs_inode;
+	struct ftpfs_inode_info *ftpfs_inode;
+
+	/* allocate a new inode */
+	ftpfs_inode = kmem_cache_alloc(ftpfs_inode_cache, GFP_KERNEL);
+	if (!ftpfs_inode)
+		return NULL;
+
+	return &ftpfs_inode->vfs_inode;
 }
 
 /*
@@ -60,16 +60,16 @@ static struct inode *ftpfs_alloc_inode(struct super_block *sb)
  */
 static void ftpfs_free_inode(struct inode *inode)
 {
-  /* free cached data */
-  if (ftpfs_i(inode)->i_cache.data)
-    kfree(ftpfs_i(inode)->i_cache.data);
-  
-  /* free inode full path */
-  if (ftpfs_i(inode)->i_path)
-    kfree(ftpfs_i(inode)->i_path);
-  
-  /* free inode */
-  kmem_cache_free(ftpfs_inode_cache, ftpfs_i(inode));
+	/* free cached data */
+	if (ftpfs_i(inode)->i_cache.data)
+		kfree(ftpfs_i(inode)->i_cache.data);
+
+	/* free inode full path */
+	if (ftpfs_i(inode)->i_path)
+		kfree(ftpfs_i(inode)->i_path);
+
+	/* free inode */
+	kmem_cache_free(ftpfs_inode_cache, ftpfs_i(inode));
 }
 
 /*
@@ -77,8 +77,9 @@ static void ftpfs_free_inode(struct inode *inode)
  */
 static void init_once(void *foo)
 {
-  struct ftpfs_inode_info *ftpfs_inode = (struct ftpfs_inode_info *) foo;
-  inode_init_once(&ftpfs_inode->vfs_inode);
+	struct ftpfs_inode_info *ftpfs_inode = (struct ftpfs_inode_info *) foo;
+
+	inode_init_once(&ftpfs_inode->vfs_inode);
 }
 
 /*
@@ -86,13 +87,13 @@ static void init_once(void *foo)
  */
 static int __init init_inodecache(void)
 {
-  ftpfs_inode_cache = kmem_cache_create("ftpfs_inode_cache", sizeof(struct ftpfs_inode_info), 0,
-                                        SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD | SLAB_ACCOUNT,
-                                        init_once);
-  if (!ftpfs_inode_cache)
-    return -ENOMEM;
-  
-  return 0;
+	ftpfs_inode_cache = kmem_cache_create("ftpfs_inode_cache", sizeof(struct ftpfs_inode_info), 0,
+																				SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD | SLAB_ACCOUNT,
+																				init_once);
+	if (!ftpfs_inode_cache)
+		return -ENOMEM;
+
+	return 0;
 }
 
 /*
@@ -100,18 +101,18 @@ static int __init init_inodecache(void)
  */
 static void destroy_inodecache(void)
 {
-  rcu_barrier();
-  kmem_cache_destroy(ftpfs_inode_cache);
+	rcu_barrier();
+	kmem_cache_destroy(ftpfs_inode_cache);
 }
 
 /*
  * FTPFS super operations.
  */
 static struct super_operations ftpfs_sops = {
-  .alloc_inode          = ftpfs_alloc_inode,
-  .free_inode           = ftpfs_free_inode,
-  .put_super            = ftpfs_put_super,
-  .statfs               = ftpfs_statfs,
+	.alloc_inode					= ftpfs_alloc_inode,
+	.free_inode						= ftpfs_free_inode,
+	.put_super						= ftpfs_put_super,
+	.statfs								= ftpfs_statfs,
 };
 
 /*
@@ -119,78 +120,78 @@ static struct super_operations ftpfs_sops = {
  */
 static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
-  struct ftp_fattr root_fattr;
-  struct ftpfs_sb_info *sbi;
-  struct inode *root_inode;
-  int err;
-  
-  /* allocate FTPFS super block */
-  sb->s_fs_info = sbi = (struct ftpfs_sb_info *) kmalloc(sizeof(struct ftpfs_sb_info), GFP_KERNEL);
-  if (!sbi)
-    return -ENOMEM;
-  
-  /* create FTP server */
-  sbi->s_ftp_server = ftp_server_create(fc->source, FTPFS_FTP_USER, FTPFS_FTP_PASSWD);
-  if (IS_ERR(sbi->s_ftp_server)) {
-    err = PTR_ERR(sbi->s_ftp_server);
-    goto err_ftp_server_create;
-  }
-  
-  /* connect to FTP server */
-  err = ftp_connect(sbi->s_ftp_server);
-  if (err)
-    goto err_ftp_connect;
-  
-  /* set super block */
-  sb->s_op = &ftpfs_sops;
-  sbi->s_opt = ftpfs_ctx(fc)->fs_opt;
-  
-  /* create root inode */
-  memset(&root_fattr, 0, sizeof(struct ftp_fattr));
-  root_fattr.f_mode = S_IFDIR | 0755;
-  root_inode = ftpfs_iget(sb, NULL, &root_fattr);
-  if (IS_ERR(root_inode)) {
-    err = PTR_ERR(root_inode);
-    goto err_no_root;
-  }
-  
-  /* make root inode */
-  sb->s_root = d_make_root(root_inode);
-  if (!sb->s_root) {
-    err = -ENOMEM;
-    goto err_no_root;
-  }
-  
-  return 0;
+	struct ftp_fattr root_fattr;
+	struct ftpfs_sb_info *sbi;
+	struct inode *root_inode;
+	int err;
+
+	/* allocate FTPFS super block */
+	sb->s_fs_info = sbi = kmalloc(sizeof(struct ftpfs_sb_info), GFP_KERNEL);
+	if (!sbi)
+		return -ENOMEM;
+
+	/* create FTP server */
+	sbi->s_ftp_server = ftp_server_create(fc->source, FTPFS_FTP_USER, FTPFS_FTP_PASSWD);
+	if (IS_ERR(sbi->s_ftp_server)) {
+		err = PTR_ERR(sbi->s_ftp_server);
+		goto err_ftp_server_create;
+	}
+
+	/* connect to FTP server */
+	err = ftp_connect(sbi->s_ftp_server);
+	if (err)
+		goto err_ftp_connect;
+
+	/* set super block */
+	sb->s_op = &ftpfs_sops;
+	sbi->s_opt = ftpfs_ctx(fc)->fs_opt;
+
+	/* create root inode */
+	memset(&root_fattr, 0, sizeof(struct ftp_fattr));
+	root_fattr.f_mode = S_IFDIR | 0755;
+	root_inode = ftpfs_iget(sb, NULL, &root_fattr);
+	if (IS_ERR(root_inode)) {
+		err = PTR_ERR(root_inode);
+		goto err_no_root;
+	}
+
+	/* make root inode */
+	sb->s_root = d_make_root(root_inode);
+	if (!sb->s_root) {
+		err = -ENOMEM;
+		goto err_no_root;
+	}
+
+	return 0;
 err_no_root:
-  printk(KERN_ERR "FTPFS : can't get root inode\n");
-  goto err_free_ftp_server;
+	printk(KERN_ERR "FTPFS : can't get root inode\n");
+	goto err_free_ftp_server;
 err_ftp_connect:
-  printk(KERN_ERR "FTPFS : can't connect to FTP server \"%s\"\n", fc->source);
+	printk(KERN_ERR "FTPFS : can't connect to FTP server \"%s\"\n", fc->source);
 err_free_ftp_server:
-  ftp_server_free(sbi->s_ftp_server);
-  goto err;
+	ftp_server_free(sbi->s_ftp_server);
+	goto err;
 err_ftp_server_create:
-  printk(KERN_ERR "FTPFS : can't create FTP server \"%s\"\n", fc->source);
+	printk(KERN_ERR "FTPFS : can't create FTP server \"%s\"\n", fc->source);
 err:
-  kfree(sbi);
-  sb->s_fs_info = NULL;
-  return err;
+	kfree(sbi);
+	sb->s_fs_info = NULL;
+	return err;
 }
 
 /*
  * FTPFS mount options.
  */
 enum {
-  Opt_cache_expires_sec,
+	Opt_cache_expires_sec,
 };
 
 /*
  * FTPFS parameters.
  */
 static struct fs_parameter_spec ftpfs_fs_parameters[] = {
-  fsparam_u32("cache_expires_sec",         Opt_cache_expires_sec),
-  {},
+	fsparam_u32("cache_expires_sec",				Opt_cache_expires_sec),
+	{},
 };
 
 /*
@@ -198,23 +199,23 @@ static struct fs_parameter_spec ftpfs_fs_parameters[] = {
  */
 static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *param)
 {
-  struct ftpfs_fs_context *ctx = ftpfs_ctx(fc);
-  struct fs_parse_result res;
-  int opt;
+	struct ftpfs_fs_context *ctx = ftpfs_ctx(fc);
+	struct fs_parse_result res;
+	int opt;
 
-  opt = fs_parse(fc, ftpfs_fs_parameters, param, &res);
-  if (opt < 0)
-    return opt;
+	opt = fs_parse(fc, ftpfs_fs_parameters, param, &res);
+	if (opt < 0)
+		return opt;
 
-  switch (opt) {
-    case Opt_cache_expires_sec:
-      ctx->fs_opt.cache_expires_sec = res.uint_32;
-      break;
-    default:
-      return -ENOPARAM;
-  }
+	switch (opt) {
+	case Opt_cache_expires_sec:
+		ctx->fs_opt.cache_expires_sec = res.uint_32;
+		break;
+	default:
+		return -ENOPARAM;
+	}
 
-  return 0;
+	return 0;
 }
 
 /*
@@ -222,7 +223,7 @@ static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *para
  */
 static int ftpfs_fc_get_tree(struct fs_context *fc)
 {
-  return get_tree_nodev(fc, ftpfs_fill_super);
+	return get_tree_nodev(fc, ftpfs_fill_super);
 }
 
 /*
@@ -230,17 +231,18 @@ static int ftpfs_fc_get_tree(struct fs_context *fc)
  */
 static void ftpfs_fc_free(struct fs_context *fc)
 {
-  struct ftpfs_fs_context *ctx = fc->fs_private;
-  kfree(ctx);
+	struct ftpfs_fs_context *ctx = fc->fs_private;
+
+	kfree(ctx);
 }
 
 /*
  * FTPFS context operations.
  */
 static struct fs_context_operations ftpfs_context_ops = {
-  .parse_param            = ftpfs_fc_parse_param,
-  .get_tree               = ftpfs_fc_get_tree,
-  .free                   = ftpfs_fc_free,
+	.parse_param					= ftpfs_fc_parse_param,
+	.get_tree							= ftpfs_fc_get_tree,
+	.free									= ftpfs_fc_free,
 };
 
 /*
@@ -248,31 +250,31 @@ static struct fs_context_operations ftpfs_context_ops = {
  */
 int ftpfs_init_fs_context(struct fs_context *fc)
 {
-  struct ftpfs_fs_context *ctx;
+	struct ftpfs_fs_context *ctx;
 
-  /* allocate FTPFS context */
-  ctx = (struct ftpfs_fs_context *) kzalloc(sizeof(struct ftpfs_fs_context), GFP_KERNEL);
-  if (!ctx)
-    return -ENOMEM;
+	/* allocate FTPFS context */
+	ctx = kzalloc(sizeof(struct ftpfs_fs_context), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
 
-  /* set default options */
-  ctx->fs_opt.cache_expires_sec = FTPFS_CACHE_EXPIRES_SEC_DEFAULT;
+	/* set default options */
+	ctx->fs_opt.cache_expires_sec = FTPFS_CACHE_EXPIRES_SEC_DEFAULT;
 
-  /* set context */
-  fc->fs_private = ctx;
-  fc->ops = &ftpfs_context_ops;
+	/* set context */
+	fc->fs_private = ctx;
+	fc->ops = &ftpfs_context_ops;
 
-  return 0;
+	return 0;
 }
 
 /*
  * FTPFS file system type.
  */
 static struct file_system_type ftpfs_type = {
-  .owner                = THIS_MODULE,
-  .name                 = "ftpfs",
-  .init_fs_context      = ftpfs_init_fs_context,
-  .kill_sb              = kill_anon_super,
+	.owner							= THIS_MODULE,
+	.name								= "ftpfs",
+	.init_fs_context		= ftpfs_init_fs_context,
+	.kill_sb						= kill_anon_super,
 };
 
 /*
@@ -280,21 +282,21 @@ static struct file_system_type ftpfs_type = {
  */
 static int __init ftpfs_init(void)
 {
-  int err;
-  
-  /* init inode cache */
-  err = init_inodecache();
-  if (err)
-    return err;
-  
-  /* register FTPFS */
-  err = register_filesystem(&ftpfs_type);
-  if (err) {
-    destroy_inodecache();
-    return err;
-  }
-  
-  return 0;
+	int err;
+
+	/* init inode cache */
+	err = init_inodecache();
+	if (err)
+		return err;
+
+	/* register FTPFS */
+	err = register_filesystem(&ftpfs_type);
+	if (err) {
+		destroy_inodecache();
+		return err;
+	}
+
+	return 0;
 }
 
 /*
@@ -302,8 +304,8 @@ static int __init ftpfs_init(void)
  */
 static void __exit ftpfs_exit(void)
 {
-  unregister_filesystem(&ftpfs_type);
-  destroy_inodecache();
+	unregister_filesystem(&ftpfs_type);
+	destroy_inodecache();
 }
 
 module_init(ftpfs_init);

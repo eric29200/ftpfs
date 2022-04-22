@@ -7,9 +7,10 @@
 #include "ftp.h"
 
 /*
- * FTP months, printed in LIST command */
-static const char *ftp_months[] = {
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+ * FTP months, printed in LIST command
+ */
+static const char * const ftp_months[] = {
+	"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
 
 /*
@@ -17,47 +18,47 @@ static const char *ftp_months[] = {
  */
 static int ftp_getline(struct ftp_server *ftp_server, struct socket *sock)
 {
-  struct msghdr msg;
-  struct kvec iov;
-  int err, n = 0;
-  char c;
-  
-  /* prepare message */
-  memset(&msg, 0, sizeof(struct msghdr));
-  iov.iov_base = &c;
-  iov.iov_len = 1;
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-  
-  /* get line */
-  for (n = 0;;) {
+	struct msghdr msg;
+	struct kvec iov;
+	int err, n = 0;
+	char c;
+
+	/* prepare message */
+	memset(&msg, 0, sizeof(struct msghdr));
+	iov.iov_base = &c;
+	iov.iov_len = 1;
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+
+	/* get line */
+	for (n = 0;;) {
 repeat_recvmsg:
-    /* read next character */
-    err = kernel_recvmsg(sock, &msg, &iov, 1, iov.iov_len, 0);
-    if (err == -ERESTARTSYS)
-      goto repeat_recvmsg;
-    else if (err < 0)
-      return err;
-    
-    /* end of message */
-    if (!err)
-      break;
-    
-    /* store character */
-    if (n < PAGE_SIZE)
-      ftp_server->ftp_buf[n++] = c;
-    
-    /* end of line */
-    if (c == '\n')
-      break;
-  }
-  
-  /* end buf with 0 */
-  if (n >= PAGE_SIZE)
-    n--;
-  ftp_server->ftp_buf[n] = 0;
-  
-  return n;
+		/* read next character */
+		err = kernel_recvmsg(sock, &msg, &iov, 1, iov.iov_len, 0);
+		if (err == -ERESTARTSYS)
+			goto repeat_recvmsg;
+		else if (err < 0)
+			return err;
+
+		/* end of message */
+		if (!err)
+			break;
+
+		/* store character */
+		if (n < PAGE_SIZE)
+			ftp_server->ftp_buf[n++] = c;
+
+		/* end of line */
+		if (c == '\n')
+			break;
+	}
+
+	/* end buf with 0 */
+	if (n >= PAGE_SIZE)
+		n--;
+	ftp_server->ftp_buf[n] = 0;
+
+	return n;
 }
 
 /*
@@ -65,28 +66,28 @@ repeat_recvmsg:
  */
 static int ftp_getreply(struct ftp_server *ftp_server)
 {
-  int n, i;
-  
-  for (i = 0;; i++) {
-    /* get next line */
-    n = ftp_getline(ftp_server, ftp_server->ftp_sock);
-    if (n < 0)
-      return n;
-    else if (n == 0)
-      return FTP_STATUS_KO;
-    
-    /* break on FTP status message */
-    if (n < 4)
-      continue;
-    if (i == 0 && ftp_server->ftp_buf[3] != '-')
-      break;
-    if (i != 0 && isdigit(ftp_server->ftp_buf[0]) && isdigit(ftp_server->ftp_buf[1])
-        && isdigit(ftp_server->ftp_buf[2]) && ftp_server->ftp_buf[3] == ' ')
-      break;
-  }
-  
-  /* return FTP status code */
-  return ftp_server->ftp_buf[0] - '0';
+	int n, i;
+
+	for (i = 0;; i++) {
+		/* get next line */
+		n = ftp_getline(ftp_server, ftp_server->ftp_sock);
+		if (n < 0)
+			return n;
+		else if (n == 0)
+			return FTP_STATUS_KO;
+
+		/* break on FTP status message */
+		if (n < 4)
+			continue;
+		if (i == 0 && ftp_server->ftp_buf[3] != '-')
+			break;
+		if (i != 0 && isdigit(ftp_server->ftp_buf[0]) && isdigit(ftp_server->ftp_buf[1])
+				&& isdigit(ftp_server->ftp_buf[2]) && ftp_server->ftp_buf[3] == ' ')
+			break;
+	}
+
+	/* return FTP status code */
+	return ftp_server->ftp_buf[0] - '0';
 }
 
 /*
@@ -94,41 +95,41 @@ static int ftp_getreply(struct ftp_server *ftp_server)
  */
 static int ftp_cmd(struct ftp_server *ftp_server, const char *cmd, const char *arg)
 {
-  struct msghdr msg;
-  struct kvec iov;
-  int err, n;
-  
-  /* build command */
-  if (arg)
-    n = snprintf(ftp_server->ftp_buf, PAGE_SIZE, "%s %s\r\n", cmd, arg);
-  else
-    n = snprintf(ftp_server->ftp_buf, PAGE_SIZE, "%s\r\n", cmd);
-  
-  /* check command buffer */
-  if (n <= 0)
-    return FTP_STATUS_KO;
-  
-  /* prepare message */
-  memset(&msg, 0, sizeof(struct msghdr));
-  iov.iov_base = ftp_server->ftp_buf;
-  iov.iov_len = n;
-  msg.msg_name = &ftp_server->ftp_saddr;
-  msg.msg_namelen = sizeof(ftp_server->ftp_saddr);
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-  
+	struct msghdr msg;
+	struct kvec iov;
+	int err, n;
+
+	/* build command */
+	if (arg)
+		n = snprintf(ftp_server->ftp_buf, PAGE_SIZE, "%s %s\r\n", cmd, arg);
+	else
+		n = snprintf(ftp_server->ftp_buf, PAGE_SIZE, "%s\r\n", cmd);
+
+	/* check command buffer */
+	if (n <= 0)
+		return FTP_STATUS_KO;
+
+	/* prepare message */
+	memset(&msg, 0, sizeof(struct msghdr));
+	iov.iov_base = ftp_server->ftp_buf;
+	iov.iov_len = n;
+	msg.msg_name = &ftp_server->ftp_saddr;
+	msg.msg_namelen = sizeof(ftp_server->ftp_saddr);
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+
 repeat_send:
-  /* send message */
-  err = kernel_sendmsg(ftp_server->ftp_sock, &msg, &iov, 1, iov.iov_len);
-  if (err == -ERESTARTSYS)
-    goto repeat_send;
-  else if (err < 0)
-    return err;
-  else if (err != iov.iov_len)
-    return FTP_STATUS_KO;
-  
-  /* return FTP reply */
-  return ftp_getreply(ftp_server);
+	/* send message */
+	err = kernel_sendmsg(ftp_server->ftp_sock, &msg, &iov, 1, iov.iov_len);
+	if (err == -ERESTARTSYS)
+		goto repeat_send;
+	else if (err < 0)
+		return err;
+	else if (err != iov.iov_len)
+		return FTP_STATUS_KO;
+
+	/* return FTP reply */
+	return ftp_getreply(ftp_server);
 }
 
 /*
@@ -136,27 +137,27 @@ repeat_send:
  */
 static int ftp_resolve_host(struct ftp_server *ftp_server)
 {
-  int ip_len, sa_len, err = 0;
-  char *ip_addr;
-  
-  /* check hostname */
-  if (!ftp_server->ftp_sname)
-    return -EINVAL;
-  
-  /* resolve host name */
-  ip_len = dns_query(&init_net, NULL, ftp_server->ftp_sname, strlen(ftp_server->ftp_sname),
-                     NULL, &ip_addr, NULL, false);
-  if (ip_len < 0)
-    return -ESRCH;
-  
-  /* build ip address */
-  sa_len = rpc_pton(&init_net, ip_addr, ip_len, (struct sockaddr *) &ftp_server->ftp_saddr,
-                    sizeof(ftp_server->ftp_saddr));
-  if (sa_len < 0)
-    err = sa_len;
-  
-  kfree(ip_addr);
-  return err;
+	int ip_len, sa_len, err = 0;
+	char *ip_addr;
+
+	/* check hostname */
+	if (!ftp_server->ftp_sname)
+		return -EINVAL;
+
+	/* resolve host name */
+	ip_len = dns_query(&init_net, NULL, ftp_server->ftp_sname, strlen(ftp_server->ftp_sname),
+										 NULL, &ip_addr, NULL, false);
+	if (ip_len < 0)
+		return -ESRCH;
+
+	/* build ip address */
+	sa_len = rpc_pton(&init_net, ip_addr, ip_len, (struct sockaddr *) &ftp_server->ftp_saddr,
+										sizeof(ftp_server->ftp_saddr));
+	if (sa_len < 0)
+		err = sa_len;
+
+	kfree(ip_addr);
+	return err;
 }
 
 /*
@@ -164,49 +165,51 @@ static int ftp_resolve_host(struct ftp_server *ftp_server)
  */
 static struct socket *ftp_open_data_socket(struct ftp_server *ftp_server)
 {
-  struct socket *sock = NULL;
-  struct sockaddr_in sa;
-  int err = -ENOSPC;
-  int p[6], i;
-  char *s;
+	struct socket *sock = NULL;
+	struct sockaddr_in sa;
+	int err = -ENOSPC;
+	int p[6], i;
+	char *s;
 
-  /* request passive mode */
-  if (ftp_cmd(ftp_server, "PASV", NULL) != FTP_STATUS_OK)
-    goto err;
+	/* request passive mode */
+	if (ftp_cmd(ftp_server, "PASV", NULL) != FTP_STATUS_OK)
+		goto err;
 
-  /* parse FTP server reply : skip first characters = status code */
-  for(i = 0, s = ftp_server->ftp_buf; i < 4 && *s; i++, s++);
-  if (!*s)
-    goto err;
+	/* parse FTP server reply : skip first characters = status code */
+	for (i = 0, s = ftp_server->ftp_buf; i < 4 && *s; i++, s++)
+		;
+	if (!*s)
+		goto err;
 
-  /* skip characters until digit */
-  for (; *s && !isdigit(*s); s++);
+	/* skip characters until digit */
+	for (; *s && !isdigit(*s); s++)
+		;
 
-  /* parse FTP server reply */
-  if (sscanf(s, "%d,%d,%d,%d,%d,%d", &p[0], &p[1], &p[2], &p[3], &p[4], &p[5]) != 6)
-    goto err;
+	/* parse FTP server reply */
+	if (sscanf(s, "%d,%d,%d,%d,%d,%d", &p[0], &p[1], &p[2], &p[3], &p[4], &p[5]) != 6)
+		goto err;
 
-  /* set socket address */
-  sa.sin_family = AF_INET;
-  for (i = 0; i < 4; i++)
-    ((unsigned char *) &sa.sin_addr)[i] = p[i];
-  sa.sin_port = htons((p[4] << 8) + p[5]);
+	/* set socket address */
+	sa.sin_family = AF_INET;
+	for (i = 0; i < 4; i++)
+		((unsigned char *) &sa.sin_addr)[i] = p[i];
+	sa.sin_port = htons((p[4] << 8) + p[5]);
 
-  /* create a new socket */
-  err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
-  if (err)
-    goto err;
+	/* create a new socket */
+	err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
+	if (err)
+		goto err;
 
-  /* connect to socket */
-  err = sock->ops->connect(sock, (struct sockaddr *) &sa, sizeof(struct sockaddr_in), O_RDWR);
-  if (err)
-    goto err;
+	/* connect to socket */
+	err = sock->ops->connect(sock, (struct sockaddr *) &sa, sizeof(struct sockaddr_in), O_RDWR);
+	if (err)
+		goto err;
 
-  return sock;
+	return sock;
 err:
-  if (sock)
-    sock->ops->release(sock);
-  return ERR_PTR(err);
+	if (sock)
+		sock->ops->release(sock);
+	return ERR_PTR(err);
 }
 
 /*
@@ -214,34 +217,34 @@ err:
  */
 struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user, const char *ftp_passwd)
 {
-  struct ftp_server *ftp_server;
+	struct ftp_server *ftp_server;
 
-  /* check parameters */
-  if (!ftp_sname || !ftp_user || !ftp_passwd)
-    return ERR_PTR(-EINVAL);
+	/* check parameters */
+	if (!ftp_sname || !ftp_user || !ftp_passwd)
+		return ERR_PTR(-EINVAL);
 
-  /* allocate FTP server */
-  ftp_server = (struct ftp_server *) kzalloc(sizeof(struct ftp_server), GFP_KERNEL);
-  if (!ftp_server)
-    return ERR_PTR(-ENOMEM);
+	/* allocate FTP server */
+	ftp_server = kzalloc(sizeof(struct ftp_server), GFP_KERNEL);
+	if (!ftp_server)
+		return ERR_PTR(-ENOMEM);
 
-  /* init server mutex */
-  mutex_init(&ftp_server->ftp_mutex);
+	/* init server mutex */
+	mutex_init(&ftp_server->ftp_mutex);
 
-  /* set FTP server name, user and password */
-  strncpy(ftp_server->ftp_sname, ftp_sname, FTP_SERVER_MAX_LEN - 1);
-  strncpy(ftp_server->ftp_user, ftp_user, FTP_USER_MAX_LEN - 1);
-  strncpy(ftp_server->ftp_passwd, ftp_passwd, FTP_PASSWD_MAX_LEN - 1);
+	/* set FTP server name, user and password */
+	strncpy(ftp_server->ftp_sname, ftp_sname, FTP_SERVER_MAX_LEN - 1);
+	strncpy(ftp_server->ftp_user, ftp_user, FTP_USER_MAX_LEN - 1);
+	strncpy(ftp_server->ftp_passwd, ftp_passwd, FTP_PASSWD_MAX_LEN - 1);
 
-  /* allocate FTP server buffer */
-  ftp_server->ftp_buf = (void *) __get_free_page(GFP_KERNEL);
-  if (!ftp_server->ftp_buf)
-    goto err;
+	/* allocate FTP server buffer */
+	ftp_server->ftp_buf = (void *) __get_free_page(GFP_KERNEL);
+	if (!ftp_server->ftp_buf)
+		goto err;
 
-  return ftp_server;
+	return ftp_server;
 err:
-  ftp_server_free(ftp_server);
-  return ERR_PTR(-ENOMEM);
+	ftp_server_free(ftp_server);
+	return ERR_PTR(-ENOMEM);
 }
 
 /*
@@ -249,18 +252,18 @@ err:
  */
 void ftp_server_free(struct ftp_server *ftp_server)
 {
-  if (!ftp_server)
-    return;
+	if (!ftp_server)
+		return;
 
-  /* release socket */
-  if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
-    ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+	/* release socket */
+	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
+		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
 
-  /* free news group buffer */
-  if (ftp_server->ftp_buf)
-    free_page((unsigned long) ftp_server->ftp_buf);
+	/* free news group buffer */
+	if (ftp_server->ftp_buf)
+		free_page((unsigned long) ftp_server->ftp_buf);
 
-  kfree(ftp_server);
+	kfree(ftp_server);
 }
 
 /*
@@ -268,62 +271,62 @@ void ftp_server_free(struct ftp_server *ftp_server)
  */
 int ftp_connect(struct ftp_server *ftp_server)
 {
-  int err;
-  
-  /* lock server */
-  mutex_lock(&ftp_server->ftp_mutex);
+	int err;
 
-  /* reset server socket */
-  if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops) {
-    ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
-    ftp_server->ftp_sock = NULL;
-  }
-  
-  /* create socket */
-  err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &ftp_server->ftp_sock);
-  if (err)
-    goto err;
-  
-  /* resolve host name */
-  err = ftp_resolve_host(ftp_server);
-  if (err)
-    goto err;
-  
-  /* connect to server */
-  ftp_server->ftp_saddr.sin_family = AF_INET;
-  ftp_server->ftp_saddr.sin_port = htons(FTP_PORT);
-  err = ftp_server->ftp_sock->ops->connect(ftp_server->ftp_sock, (struct sockaddr *) &ftp_server->ftp_saddr,
-                                           sizeof(ftp_server->ftp_saddr), O_RDWR);
-  if (err)
-    goto err;
-  
-  /* get FTP reply */
-  err = -ENOSPC;
-  if (ftp_getreply(ftp_server) != FTP_STATUS_OK)
-    goto err;
-  
-  /* send USER command */
-  if (ftp_cmd(ftp_server, "USER", ftp_server->ftp_user) != FTP_STATUS_OK_SO_FAR)
-    goto err;
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
 
-  /* send PASS command */
-  if (ftp_cmd(ftp_server, "PASS", ftp_server->ftp_passwd) != FTP_STATUS_OK)
-    goto err;
-  
-  /* set binary mode */
-  if (ftp_cmd(ftp_server, "TYPE", "I") != FTP_STATUS_OK)
-    goto err;
-  
-  /* release server */
-  mutex_unlock(&ftp_server->ftp_mutex);
-  return 0;
+	/* reset server socket */
+	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops) {
+		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+		ftp_server->ftp_sock = NULL;
+	}
+
+	/* create socket */
+	err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &ftp_server->ftp_sock);
+	if (err)
+		goto err;
+
+	/* resolve host name */
+	err = ftp_resolve_host(ftp_server);
+	if (err)
+		goto err;
+
+	/* connect to server */
+	ftp_server->ftp_saddr.sin_family = AF_INET;
+	ftp_server->ftp_saddr.sin_port = htons(FTP_PORT);
+	err = ftp_server->ftp_sock->ops->connect(ftp_server->ftp_sock, (struct sockaddr *) &ftp_server->ftp_saddr,
+																					 sizeof(ftp_server->ftp_saddr), O_RDWR);
+	if (err)
+		goto err;
+
+	/* get FTP reply */
+	err = -ENOSPC;
+	if (ftp_getreply(ftp_server) != FTP_STATUS_OK)
+		goto err;
+
+	/* send USER command */
+	if (ftp_cmd(ftp_server, "USER", ftp_server->ftp_user) != FTP_STATUS_OK_SO_FAR)
+		goto err;
+
+	/* send PASS command */
+	if (ftp_cmd(ftp_server, "PASS", ftp_server->ftp_passwd) != FTP_STATUS_OK)
+		goto err;
+
+	/* set binary mode */
+	if (ftp_cmd(ftp_server, "TYPE", "I") != FTP_STATUS_OK)
+		goto err;
+
+	/* release server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return 0;
 err:
-  if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
-    ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
-  
-  /* release server */
-  mutex_unlock(&ftp_server->ftp_mutex);
-  return err;
+	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
+		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+
+	/* release server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return err;
 }
 
 /*
@@ -331,145 +334,145 @@ err:
  */
 int ftp_parse_dir_entry(char *line, int len, struct ftp_fattr *fattr)
 {
-  unsigned int year, month, day, hour, min;
-  char mode[12], *tok, *link_marker;
-  time64_t time_now;
-  struct tm tm_now;
-  int i;
-  
-  /* reset file name and target link */
-  memset(fattr->f_name, 0, FTP_MAX_NAMELEN);
-  memset(fattr->f_link, 0, FTP_MAX_NAMELEN);
-  
-  /* remove ending '\n' */
-  if (line[len - 1] == '\n')
-    line[len - 1] = 0;
-  
-  /* first field = permissions */
-  tok = strsep(&line, " ");
-  if (!tok || sscanf(tok, "%11s", mode) != 1)
-    goto err;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* next field = nlinks */
-  tok = strsep(&line, " ");
-  if (!tok || sscanf(tok, "%u", &fattr->f_nlinks) != 1)
-    goto err;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* next field = user */
-  tok = strsep(&line, " ");
-  if (!tok)
-    goto err;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* next field = group */
-  tok = strsep(&line, " ");
-  if (!tok)
-    goto err;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* next field = size */
-  tok = strsep(&line, " ");
-  if (!tok || sscanf(tok, "%llu", &fattr->f_size) != 1)
-    goto err;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* next field = month */
-  tok = strsep(&line, " ");
-  if (!tok)
-    goto err;
-  
-  /* parse month */
-  for (month = 0; month < 12; month++)
-    if (strcmp(ftp_months[month], tok) == 0)
-      break;
-  if (month == 12)
-    goto err;
-  month++;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* next field = day */
-  tok = strsep(&line, " ");
-  if (!tok || sscanf(tok, "%u", &day) != 1)
-    goto err;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* next field = year or hour (if current year) */
-  tok = strsep(&line, " ");
-  if (!tok)
-    goto err;
-  if (sscanf(tok, "%u:%u", &hour, &min) == 2) {
-    time_now = ktime_get_real_seconds();
-    time64_to_tm(time_now, 0, &tm_now);
-    year = tm_now.tm_year + 1900;
-  } else if (sscanf(tok, "%u", &year) == 1) {
-    hour = 0;
-    min = 0;
-  }
-  else
-    goto err;
-  
-  /* skip spaces */
-  line = line ? skip_spaces(line) : NULL;
-  if (!line)
-    goto err;
-  
-  /* end of line = file name (and maybe link target) */
-  link_marker = strstr(line, " -> ");
-  if (link_marker) {
-    *link_marker = 0;
-    strncpy(fattr->f_name, line, FTP_MAX_NAMELEN - 1);
-    strncpy(fattr->f_link, link_marker + 4, FTP_MAX_NAMELEN - 1);
-  } else {
-    strncpy(fattr->f_name, line, FTP_MAX_NAMELEN - 1);
-  }
-  
-  /* parse mode */
-  if (mode[0] == 'd')
-    fattr->f_mode = S_IFDIR;
-  else if (mode[0] == 'l')
-    fattr->f_mode = S_IFLNK;
-  else
-    fattr->f_mode = S_IFREG;
-  for (i = 1; i < 10; i++)
-    if (mode[i] != '-')
-      fattr->f_mode |= 1 << (9 - i);
-  
-  /* make time */
-  fattr->f_time = mktime64(year, month, day, hour, min, 0);
-  
-  return 0;
+	unsigned int year, month, day, hour, min;
+	char mode[12], *tok, *link_marker;
+	time64_t time_now;
+	struct tm tm_now;
+	int i;
+
+	/* reset file name and target link */
+	memset(fattr->f_name, 0, FTP_MAX_NAMELEN);
+	memset(fattr->f_link, 0, FTP_MAX_NAMELEN);
+
+	/* remove ending '\n' */
+	if (line[len - 1] == '\n')
+		line[len - 1] = 0;
+
+	/* first field = permissions */
+	tok = strsep(&line, " ");
+	if (!tok || sscanf(tok, "%11s", mode) != 1)
+		goto err;
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* next field = nlinks */
+	tok = strsep(&line, " ");
+	if (!tok || kstrtouint(tok, 10, &fattr->f_nlinks))
+		goto err;
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* next field = user */
+	tok = strsep(&line, " ");
+	if (!tok)
+		goto err;
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* next field = group */
+	tok = strsep(&line, " ");
+	if (!tok)
+		goto err;
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* next field = size */
+	tok = strsep(&line, " ");
+	if (!tok || kstrtoull(tok, 10, &fattr->f_size))
+		goto err;
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* next field = month */
+	tok = strsep(&line, " ");
+	if (!tok)
+		goto err;
+
+	/* parse month */
+	for (month = 0; month < 12; month++)
+		if (strcmp(ftp_months[month], tok) == 0)
+			break;
+	if (month == 12)
+		goto err;
+	month++;
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* next field = day */
+	tok = strsep(&line, " ");
+	if (!tok || kstrtouint(tok, 10, &day))
+		goto err;
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* next field = year or hour (if current year) */
+	tok = strsep(&line, " ");
+	if (!tok)
+		goto err;
+	if (sscanf(tok, "%u:%u", &hour, &min) == 2) {
+		time_now = ktime_get_real_seconds();
+		time64_to_tm(time_now, 0, &tm_now);
+		year = tm_now.tm_year + 1900;
+	} else if (kstrtouint(tok, 10, &year)) {
+		hour = 0;
+		min = 0;
+	} else {
+		goto err;
+	}
+
+	/* skip spaces */
+	line = line ? skip_spaces(line) : NULL;
+	if (!line)
+		goto err;
+
+	/* end of line = file name (and maybe link target) */
+	link_marker = strstr(line, " -> ");
+	if (link_marker) {
+		*link_marker = 0;
+		strncpy(fattr->f_name, line, FTP_MAX_NAMELEN - 1);
+		strncpy(fattr->f_link, link_marker + 4, FTP_MAX_NAMELEN - 1);
+	} else {
+		strncpy(fattr->f_name, line, FTP_MAX_NAMELEN - 1);
+	}
+
+	/* parse mode */
+	if (mode[0] == 'd')
+		fattr->f_mode = S_IFDIR;
+	else if (mode[0] == 'l')
+		fattr->f_mode = S_IFLNK;
+	else
+		fattr->f_mode = S_IFREG;
+	for (i = 1; i < 10; i++)
+		if (mode[i] != '-')
+			fattr->f_mode |= 1 << (9 - i);
+
+	/* make time */
+	fattr->f_time = mktime64(year, month, day, hour, min, 0);
+
+	return 0;
 err:
-  return -ENOSPC;
+	return -ENOSPC;
 }
 
 /*
@@ -477,78 +480,77 @@ err:
  */
 int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *ftp_buf)
 {
-  struct socket *sock_data;
-  struct msghdr msg;
-  struct kvec iov;
-  int n, ret = 0;
-  
-  /* lock server */
-  mutex_lock(&ftp_server->ftp_mutex);
+	struct socket *sock_data;
+	struct msghdr msg;
+	struct kvec iov;
+	int n, ret = 0;
 
-  /* open a data socket */
-  sock_data = ftp_open_data_socket(ftp_server);
-  if (IS_ERR(sock_data)) {
-    ret = PTR_ERR(sock_data);
-    sock_data = NULL;
-    goto out;
-  }
-  
-  /* send list command */
-  if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT) {
-    ret = -ENOSPC;
-    goto out_release_sock;
-  }
-  
-  /* prepare message */
-  memset(&msg, 0, sizeof(struct msghdr));
-  iov.iov_base = ftp_server->ftp_buf;
-  iov.iov_len = PAGE_SIZE;
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
 
-  /* get data and copy it to output buffer */
-  for (;;) {
+	/* open a data socket */
+	sock_data = ftp_open_data_socket(ftp_server);
+	if (IS_ERR(sock_data)) {
+		ret = PTR_ERR(sock_data);
+		sock_data = NULL;
+		goto out;
+	}
+
+	/* send list command */
+	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT) {
+		ret = -ENOSPC;
+		goto out_release_sock;
+	}
+
+	/* prepare message */
+	memset(&msg, 0, sizeof(struct msghdr));
+	iov.iov_base = ftp_server->ftp_buf;
+	iov.iov_len = PAGE_SIZE;
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+
+	/* get data and copy it to output buffer */
+	for (;;) {
 repeat_recvmsg:
-    /* get next buffer */
-    n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
-    if (n == -ERESTARTSYS)
-      goto repeat_recvmsg;
-    else if (n <= 0)
-      break;
+		/* get next buffer */
+		n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
+		if (n == -ERESTARTSYS)
+			goto repeat_recvmsg;
+		else if (n <= 0)
+			break;
 
-    /* grow buffer if needed */
-    if (ftp_buf->len + n > ftp_buf->capacity) {
-      ftp_buf->data = (char *) krealloc(ftp_buf->data, ftp_buf->capacity + PAGE_SIZE, GFP_KERNEL);
-      if (!ftp_buf->data) {
-        ret = -ENOMEM;
-        break;
-      }
+		/* grow buffer if needed */
+		if (ftp_buf->len + n > ftp_buf->capacity) {
+			ftp_buf->data = (char *) krealloc(ftp_buf->data, ftp_buf->capacity + PAGE_SIZE, GFP_KERNEL);
+			if (!ftp_buf->data) {
+				ret = -ENOMEM;
+				break;
+			}
 
-      ftp_buf->capacity += PAGE_SIZE;
-    }
+			ftp_buf->capacity += PAGE_SIZE;
+		}
 
-    /* copy to ftp buffer */
-    memcpy(ftp_buf->data + ftp_buf->len, ftp_server->ftp_buf, n);
-    ftp_buf->len += n;
-  }
+		/* copy to ftp buffer */
+		memcpy(ftp_buf->data + ftp_buf->len, ftp_server->ftp_buf, n);
+		ftp_buf->len += n;
+	}
 
 out_release_sock:
-  /* close data socket */
-  sock_data->ops->release(sock_data);
+	/* close data socket */
+	sock_data->ops->release(sock_data);
 
-  /* get FTP reply */
-  if (ftp_getreply(ftp_server) != FTP_STATUS_OK) {
-    /* free FTP buffer */
-    if (ftp_buf->data)
-      kfree(ftp_buf->data);
-    memset(ftp_buf, 0, sizeof(struct ftp_buffer));
+	/* get FTP reply */
+	if (ftp_getreply(ftp_server) != FTP_STATUS_OK) {
+		/* free FTP buffer */
+		kfree(ftp_buf->data);
+		memset(ftp_buf, 0, sizeof(struct ftp_buffer));
 
-    ret = -ENOSPC;
-  }
+		ret = -ENOSPC;
+	}
 
 out:
-  mutex_unlock(&ftp_server->ftp_mutex);
-  return ret;
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ret;
 }
 
 /*
@@ -556,81 +558,81 @@ out:
  */
 int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *buf, size_t count, loff_t *pos)
 {
-  struct socket *sock_data;
-  struct msghdr msg;
-  struct kvec iov;
-  char nb_buf[64];
-  int n, ret = 0;
-  loff_t off;
+	struct socket *sock_data;
+	struct msghdr msg;
+	struct kvec iov;
+	char nb_buf[64];
+	int n, ret = 0;
+	loff_t off;
 
-  /* lock server */
-  mutex_lock(&ftp_server->ftp_mutex);
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
 
-  /* open a data socket */
-  sock_data = ftp_open_data_socket(ftp_server);
-  if (IS_ERR(sock_data)) {
-    ret = PTR_ERR(sock_data);
-    sock_data = NULL;
-    goto out;
-  }
+	/* open a data socket */
+	sock_data = ftp_open_data_socket(ftp_server);
+	if (IS_ERR(sock_data)) {
+		ret = PTR_ERR(sock_data);
+		sock_data = NULL;
+		goto out;
+	}
 
-  /* send restore command */
-  if (*pos) {
-    snprintf(nb_buf, 64, "%lld", *pos);
-    if (ftp_cmd(ftp_server, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
-      ret = -ENOSPC;
-      goto out_release_sock;
-    }
-  }
+	/* send restore command */
+	if (*pos) {
+		snprintf(nb_buf, 64, "%lld", *pos);
+		if (ftp_cmd(ftp_server, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
+			ret = -ENOSPC;
+			goto out_release_sock;
+		}
+	}
 
-  /* send list command */
-  if (ftp_cmd(ftp_server, "RETR", file_path) != FTP_STATUS_OK_INIT) {
-    ret = -ENOSPC;
-    goto out_release_sock;
-  }
+	/* send list command */
+	if (ftp_cmd(ftp_server, "RETR", file_path) != FTP_STATUS_OK_INIT) {
+		ret = -ENOSPC;
+		goto out_release_sock;
+	}
 
-  /* prepare message */
-  memset(&msg, 0, sizeof(struct msghdr));
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
+	/* prepare message */
+	memset(&msg, 0, sizeof(struct msghdr));
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
 
-  /* get data and copy it to output buffer */
-  for (off = 0; count > 0;) {
-    /* set buffer */
-    iov.iov_base = ftp_server->ftp_buf;
-    iov.iov_len = count <= PAGE_SIZE ? count : PAGE_SIZE;
+	/* get data and copy it to output buffer */
+	for (off = 0; count > 0;) {
+		/* set buffer */
+		iov.iov_base = ftp_server->ftp_buf;
+		iov.iov_len = count <= PAGE_SIZE ? count : PAGE_SIZE;
 
 repeat_recvmsg:
-    /* get next buffer */
-    n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
-    if (n == -ERESTARTSYS)
-      goto repeat_recvmsg;
-    else if (n <= 0)
-      break;
+		/* get next buffer */
+		n = kernel_recvmsg(sock_data, &msg, &iov, 1, iov.iov_len, 0);
+		if (n == -ERESTARTSYS)
+			goto repeat_recvmsg;
+		else if (n <= 0)
+			break;
 
-    /* copy to output buffer */
-    if (copy_to_user(buf + off, ftp_server->ftp_buf, n))
-      break;
+		/* copy to output buffer */
+		if (copy_to_user(buf + off, ftp_server->ftp_buf, n))
+			break;
 
-    /* update position */
-    off += n;
-    *pos += n;
-    count -= n;
-  }
+		/* update position */
+		off += n;
+		*pos += n;
+		count -= n;
+	}
 
-  /* return number of bytes read */
-  ret = off;
+	/* return number of bytes read */
+	ret = off;
 
 out_release_sock:
-  /* close data socket */
-  sock_data->ops->release(sock_data);
+	/* close data socket */
+	sock_data->ops->release(sock_data);
 
-  /* get FTP reply */
-  ftp_getreply(ftp_server);
+	/* get FTP reply */
+	ftp_getreply(ftp_server);
 
 out:
-  /* release server */
-  mutex_unlock(&ftp_server->ftp_mutex);
+	/* release server */
+	mutex_unlock(&ftp_server->ftp_mutex);
 
-  return ret;
+	return ret;
 }

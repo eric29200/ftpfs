@@ -2,18 +2,34 @@
 #define _FTPFS_H_
 
 #include <linux/fs.h>
+#include <linux/fs_context.h>
 
 #include "ftp.h"
 
-#define FTPFS_FTP_USER            "anonymous"
-#define FTPFS_FTP_PASSWD          "anonymous"
-#define FTPFS_CACHE_EXPIRES_MS    60000
+#define FTPFS_FTP_USER                    "anonymous"
+#define FTPFS_FTP_PASSWD                  "anonymous"
+#define FTPFS_CACHE_EXPIRES_SEC_DEFAULT   60
+
+/*
+ * FTPFS mount options.
+ */
+struct ftpfs_mount_opts {
+  unsigned long                  cache_expires_sec;     /* seconds before cached data expires */
+};
+
+/*
+ * FTPFS file system context.
+ */
+struct ftpfs_fs_context {
+  struct ftpfs_mount_opts        fs_opt;                /* mount options */
+};
 
 /*
  * FTPFS in memory super block.
  */
 struct ftpfs_sb_info {
   struct ftp_server               *s_ftp_server;        /* FTP server */
+  struct ftpfs_mount_opts         s_opt;                /* mount options */
 };
 
 /*
@@ -37,6 +53,14 @@ extern struct file_operations ftpfs_dir_fops;
 /* FTPFS inode protoypes (defined in inode.c) */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr);
 int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr);
+
+/*
+ * Get FTPFS context from generic context.
+ */
+static inline struct ftpfs_fs_context *ftpfs_ctx(struct fs_context *fc)
+{
+  return fc->fs_private;
+}
 
 /*
  * Get FTPFS in memory super block from generic super block.

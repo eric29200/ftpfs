@@ -3,6 +3,7 @@
 #include <linux/slab.h>
 #include <linux/vfs.h>
 #include <linux/fs_context.h>
+#include <linux/fs_parser.h>
 
 #include "ftpfs.h"
 
@@ -140,8 +141,9 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
   if (err)
     goto err_ftp_connect;
   
-  /* set super operations */
+  /* set super block */
   sb->s_op = &ftpfs_sops;
+  sbi->s_opt = ftpfs_ctx(fc)->fs_opt;
   
   /* create root inode */
   memset(&root_fattr, 0, sizeof(struct ftp_fattr));
@@ -177,6 +179,45 @@ err:
 }
 
 /*
+ * FTPFS mount options.
+ */
+enum {
+  Opt_cache_expires_sec,
+};
+
+/*
+ * FTPFS parameters.
+ */
+static struct fs_parameter_spec ftpfs_fs_parameters[] = {
+  fsparam_u32("cache_expires_sec",         Opt_cache_expires_sec),
+  {},
+};
+
+/*
+ * Parse FTPFS parameters.
+ */
+static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *param)
+{
+  struct ftpfs_fs_context *ctx = ftpfs_ctx(fc);
+  struct fs_parse_result res;
+  int opt;
+
+  opt = fs_parse(fc, ftpfs_fs_parameters, param, &res);
+  if (opt < 0)
+    return opt;
+
+  switch (opt) {
+    case Opt_cache_expires_sec:
+      ctx->fs_opt.cache_expires_sec = res.uint_32;
+      break;
+    default:
+      return -ENOPARAM;
+  }
+
+  return 0;
+}
+
+/*
  * Get FTPFS tree = mount file system.
  */
 static int ftpfs_fc_get_tree(struct fs_context *fc)
@@ -185,10 +226,21 @@ static int ftpfs_fc_get_tree(struct fs_context *fc)
 }
 
 /*
+ * Free FTPFS context.
+ */
+static void ftpfs_fc_free(struct fs_context *fc)
+{
+  struct ftpfs_fs_context *ctx = fc->fs_private;
+  kfree(ctx);
+}
+
+/*
  * FTPFS context operations.
  */
 static struct fs_context_operations ftpfs_context_ops = {
+  .parse_param            = ftpfs_fc_parse_param,
   .get_tree               = ftpfs_fc_get_tree,
+  .free                   = ftpfs_fc_free,
 };
 
 /*
@@ -196,7 +248,20 @@ static struct fs_context_operations ftpfs_context_ops = {
  */
 int ftpfs_init_fs_context(struct fs_context *fc)
 {
+  struct ftpfs_fs_context *ctx;
+
+  /* allocate FTPFS context */
+  ctx = (struct ftpfs_fs_context *) kzalloc(sizeof(struct ftpfs_fs_context), GFP_KERNEL);
+  if (!ctx)
+    return -ENOMEM;
+
+  /* set default options */
+  ctx->fs_opt.cache_expires_sec = FTPFS_CACHE_EXPIRES_SEC_DEFAULT;
+
+  /* set context */
+  fc->fs_private = ctx;
   fc->ops = &ftpfs_context_ops;
+
   return 0;
 }
 

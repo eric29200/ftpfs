@@ -53,7 +53,7 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
 
 out_update_timeout:
   /* update cache timeout */
-  ftpfs_inode->i_cache_expires = jiffies + msecs_to_jiffies(FTPFS_CACHE_EXPIRES_MS);
+  ftpfs_inode->i_cache_expires = jiffies + msecs_to_jiffies(ftpfs_sb(sb)->s_opt.cache_expires_sec * 1000);
 out:
   /* release cache semaphore */
   up_write(&ftpfs_inode->i_cache_rw_sem);

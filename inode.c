@@ -18,7 +18,7 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
   /* data cache already set */
   if (ftpfs_inode->i_cache.data) {
     /* cache is still valid : exit */
-    if (jiffies < ftpfs_inode->i_cache_expires)
+    if (time_before(jiffies, ftpfs_inode->i_cache_expires))
       goto out;
 
     /* cache is not valid anymore : reset it */

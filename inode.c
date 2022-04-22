@@ -12,8 +12,8 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
   size_t link_len;
   int ret = 0;
 
-  /* lock cache */
-  mutex_lock(&ftpfs_inode->i_cache_mutex);
+  /* lock cache for writing */
+  down_write(&ftpfs_inode->i_cache_rw_sem);
 
   /* data cache already set */
   if (ftpfs_inode->i_cache.data)
@@ -45,7 +45,7 @@ int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
     ret = ftp_list(ftpfs_sb(sb)->s_ftp_server, ftpfs_inode->i_path, &ftpfs_inode->i_cache);
 
 out:
-  mutex_unlock(&ftpfs_inode->i_cache_mutex);
+  up_write(&ftpfs_inode->i_cache_rw_sem);
   return ret;
 }
 
@@ -90,6 +90,7 @@ static char *ftpfs_build_full_path(struct inode *dir, struct ftp_fattr *fattr)
  */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr)
 {
+  struct ftpfs_inode_info *ftpfs_inode;
   struct inode *inode;
   int err = -ENOMEM;
   
@@ -102,11 +103,14 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
   inode->i_ino = get_next_ino();
   
   /* init inode */
+  ftpfs_inode = ftpfs_i(inode);
   inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
   set_nlink(inode, fattr->f_nlinks);
   inode->i_size = fattr->f_size;
-  mutex_init(&ftpfs_i(inode)->i_cache_mutex);
-  
+  init_rwsem(&ftpfs_inode->i_cache_rw_sem);
+  ftpfs_inode->i_path = NULL;
+  memset(&ftpfs_inode->i_cache, 0, sizeof(struct ftp_buffer));
+
   /* set time */
   if (fattr->f_time) {
     inode->i_atime.tv_sec = inode->i_mtime.tv_sec = inode->i_ctime.tv_sec = fattr->f_time;
@@ -116,8 +120,8 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
   }
   
   /* build full path */
-  ftpfs_i(inode)->i_path = ftpfs_build_full_path(dir, fattr);
-  if (!ftpfs_i(inode)->i_path)
+  ftpfs_inode->i_path = ftpfs_build_full_path(dir, fattr);
+  if (!ftpfs_inode->i_path)
     goto err;
   
   /* symbolic link : load inode data = target link */

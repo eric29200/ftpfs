@@ -9,8 +9,17 @@ static int ftpfs_readlink(struct dentry *dentry, char __user *buf, int buf_len)
   int len;
   
   /* check link */
-  if (!S_ISLNK(dentry->d_inode->i_mode) || !ftpfs_inode->i_cache.data)
+  if (!S_ISLNK(dentry->d_inode->i_mode))
     return -ENOLINK;
+
+  /* acquire cache semaphore */
+  down_read(&ftpfs_inode->i_cache_rw_sem);
+
+  /* inode cache is empty : should not be possible */
+  if (!ftpfs_inode->i_cache.data) {
+    len = -ENOLINK;
+    goto out;
+  }
 
   /* compute link length */
   len = ftpfs_inode->i_cache.len;
@@ -19,8 +28,11 @@ static int ftpfs_readlink(struct dentry *dentry, char __user *buf, int buf_len)
 
   /* copy to user buffer */
   if (copy_to_user(buf, ftpfs_inode->i_cache.data, len))
-    return -EFAULT;
+    len = -EFAULT;
 
+out:
+  /* release cache semaphore */
+  up_read(&ftpfs_inode->i_cache_rw_sem);
   return len;
 }
 

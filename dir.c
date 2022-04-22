@@ -9,17 +9,20 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
   struct ftp_fattr fattr;
   size_t off, rem;
   loff_t i = 2;
-  int err;
+  int ret;
   
   /* load inode data into cache = directory listing */
-  err = ftpfs_load_inode_data(file->f_inode, NULL);
-  if (err)
-    return err;
+  ret = ftpfs_load_inode_data(file->f_inode, NULL);
+  if (ret)
+    return ret;
   
   /* emit "." and ".." */
   if (!dir_emit_dots(file, ctx))
     return 0;
   
+  /* acquire cache semaphore */
+  down_read(&ftpfs_i(file->f_inode)->i_cache_rw_sem);
+
   /* parse all directory entries */
   for (off = 0; off < ftpfs_i(file->f_inode)->i_cache.len;) {
     /* compute start line and remaining characters in cache */
@@ -37,16 +40,17 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
   
     /* allocate line */
     line = (char *) kmalloc(end - start + 1, GFP_KERNEL);
-    if (!line)
-      return -ENOMEM;
+    if (!line) {
+      ret = -ENOMEM;
+      goto out;
+    }
     
     /* copy line */
     strncpy(line, start, end - start);
     line[end - start] = 0;
     
     /* parse line */
-    err = ftp_parse_dir_entry(line, end - start, &fattr);
-    if (err)
+    if (ftp_parse_dir_entry(line, end - start, &fattr))
       goto next_line;
     
     /* skip first entries */
@@ -55,7 +59,7 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
     
     /* emit file */
     if (!dir_emit(ctx, fattr.f_name, strnlen(fattr.f_name, FTP_MAX_NAMELEN), 1, DT_UNKNOWN))
-      break;
+      goto out;
     
     /* update position */
     ctx->pos++;
@@ -71,11 +75,15 @@ next_line:
     off = end - ftpfs_i(file->f_inode)->i_cache.data + (*end == '\r' ? 2 : 1);
   }
   
+out:
+  /* release cache semaphore */
+  up_read(&ftpfs_i(file->f_inode)->i_cache_rw_sem);
+
   /* free last line */
   if (line)
     kfree(line);
   
-  return 0;
+  return ret;
 }
 
 /*

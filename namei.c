@@ -26,6 +26,9 @@ static int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp
   if (ret)
     goto out;
   
+  /* acquire cache semaphore */
+  down_read(&ftpfs_i(dir)->i_cache_rw_sem);
+
   /* parse all directory entries */
   for (off = 0; off < ftpfs_i(dir)->i_cache.len;) {
     /* compute start line and remaining characters in cache */
@@ -75,6 +78,9 @@ next_line:
 
   ret = -ENOENT;
 out: 
+  /* release cache semaphore */
+  up_read(&ftpfs_i(dir)->i_cache_rw_sem);
+
   /* free last line */
   if (line)
     kfree(line);

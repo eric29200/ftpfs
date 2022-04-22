@@ -51,10 +51,6 @@ static struct inode *ftpfs_alloc_inode(struct super_block *sb)
   if (!ftpfs_inode)
     return NULL;
   
-  /* reset path and cached data */
-  ftpfs_inode->i_path = NULL;
-  memset(&ftpfs_inode->i_cache, 0, sizeof(struct ftp_buffer));
-  
   return &ftpfs_inode->vfs_inode;
 }
 

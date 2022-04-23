@@ -6,8 +6,8 @@
 
 #include "ftp.h"
 
-#define FTPFS_FTP_USER										"anonymous"
-#define FTPFS_FTP_PASSWD									"anonymous"
+#define FTPFS_FTP_USER_DEFAULT						"anonymous"
+#define FTPFS_FTP_PASSWD_DEFAULT					"anonymous"
 #define FTPFS_CACHE_EXPIRES_SEC_DEFAULT		60
 
 /*
@@ -15,6 +15,8 @@
  */
 struct ftpfs_mount_opts {
 	unsigned long									cache_expires_sec;			/* seconds before cached data expires */
+	char													*user;									/* FTP user */
+	char													*passwd;								/* FTP passwd */
 };
 
 /*

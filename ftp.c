@@ -66,7 +66,7 @@ repeat_recvmsg:
  */
 static int ftp_getreply(struct ftp_server *ftp_server)
 {
-	int n, i;
+	int n, i, ret;
 
 	for (i = 0;; i++) {
 		/* get next line */
@@ -87,7 +87,11 @@ static int ftp_getreply(struct ftp_server *ftp_server)
 	}
 
 	/* return FTP status code */
-	return ftp_server->ftp_buf[0] - '0';
+	ret = ftp_server->ftp_buf[0] - '0';
+	if (ret == FTP_STATUS_KO)
+		printk(KERN_ERR "FTPFS : %s", ftp_server->ftp_buf);
+
+	return ret;
 }
 
 /*

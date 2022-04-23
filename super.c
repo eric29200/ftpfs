@@ -120,6 +120,7 @@ static struct super_operations ftpfs_sops = {
  */
 static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
+	struct ftpfs_fs_context *ctx = ftpfs_ctx(fc);
 	struct ftp_fattr root_fattr;
 	struct ftpfs_sb_info *sbi;
 	struct inode *root_inode;
@@ -131,7 +132,7 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		return -ENOMEM;
 
 	/* create FTP server */
-	sbi->s_ftp_server = ftp_server_create(fc->source, FTPFS_FTP_USER, FTPFS_FTP_PASSWD);
+	sbi->s_ftp_server = ftp_server_create(fc->source, ctx->fs_opt.user, ctx->fs_opt.passwd);
 	if (IS_ERR(sbi->s_ftp_server)) {
 		err = PTR_ERR(sbi->s_ftp_server);
 		goto err_ftp_server_create;
@@ -184,13 +185,17 @@ err:
  */
 enum {
 	Opt_cache_expires_sec,
+	Opt_user,
+	Opt_passwd,
 };
 
 /*
  * FTPFS parameters.
  */
 static struct fs_parameter_spec ftpfs_fs_parameters[] = {
-	fsparam_u32("cache_expires_sec",				Opt_cache_expires_sec),
+	fsparam_u32("cache_expires_sec"	,				Opt_cache_expires_sec	),
+	fsparam_string("username"				,				Opt_user							),
+	fsparam_string("password"				,				Opt_passwd						),
 	{},
 };
 
@@ -210,6 +215,20 @@ static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *para
 	switch (opt) {
 	case Opt_cache_expires_sec:
 		ctx->fs_opt.cache_expires_sec = res.uint_32;
+		break;
+	case Opt_user:
+		if (!param->string)
+			return -EINVAL;
+
+		ctx->fs_opt.user = param->string;
+		param->string = NULL;
+		break;
+	case Opt_passwd:
+		if (!param->string)
+			return -EINVAL;
+
+		ctx->fs_opt.passwd = param->string;
+		param->string = NULL;
 		break;
 	default:
 		return -ENOPARAM;
@@ -259,6 +278,8 @@ int ftpfs_init_fs_context(struct fs_context *fc)
 
 	/* set default options */
 	ctx->fs_opt.cache_expires_sec = FTPFS_CACHE_EXPIRES_SEC_DEFAULT;
+	ctx->fs_opt.user = FTPFS_FTP_USER_DEFAULT;
+	ctx->fs_opt.passwd = FTPFS_FTP_PASSWD_DEFAULT;
 
 	/* set context */
 	fc->fs_private = ctx;

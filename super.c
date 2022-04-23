@@ -39,7 +39,6 @@ static void ftpfs_put_super(struct super_block *sb)
 	kfree(sbi);
 }
 
-
 /*
  * Allocate a new FTPFS inode.
  */
@@ -56,9 +55,9 @@ static struct inode *ftpfs_alloc_inode(struct super_block *sb)
 }
 
 /*
- * Free a FTPFS inode.
+ * Remove an inode from the cache.
  */
-static void ftpfs_free_inode(struct inode *inode)
+static void ftpfs_evict_inode(struct inode *inode)
 {
 	/* free cached data */
 	if (ftpfs_i(inode)->i_cache.data)
@@ -68,7 +67,15 @@ static void ftpfs_free_inode(struct inode *inode)
 	if (ftpfs_i(inode)->i_path)
 		kfree(ftpfs_i(inode)->i_path);
 
-	/* free inode */
+	/* clear inode */
+	clear_inode(inode);
+}
+
+/*
+ * Free a FTPFS inode.
+ */
+static void ftpfs_free_inode(struct inode *inode)
+{
 	kmem_cache_free(ftpfs_inode_cache, ftpfs_i(inode));
 }
 
@@ -111,6 +118,7 @@ static void destroy_inodecache(void)
 static struct super_operations ftpfs_sops = {
 	.alloc_inode					= ftpfs_alloc_inode,
 	.free_inode						= ftpfs_free_inode,
+	.evict_inode					= ftpfs_evict_inode,
 	.put_super						= ftpfs_put_super,
 	.statfs								= ftpfs_statfs,
 };

@@ -41,6 +41,7 @@ struct ftpfs_inode_info {
 };
 
 /* FTPFS operations */
+extern const struct dentry_operations ftpfs_dops;
 extern const struct inode_operations ftpfs_file_iops;
 extern const struct inode_operations ftpfs_dir_iops;
 extern const struct inode_operations ftpfs_symlink_iops;

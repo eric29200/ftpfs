@@ -51,9 +51,6 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	if (!inode)
 		goto err;
 
-	/* get next inode number */
-	inode->i_ino = get_next_ino();
-
 	/* init inode */
 	ftpfs_inode = ftpfs_i(inode);
 	inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);

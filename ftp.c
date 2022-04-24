@@ -519,24 +519,28 @@ err:
 struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir)
 {
 	struct socket *sock_data;
+	int err = -ENOSPC;
 
 	/* lock server */
 	mutex_lock(&ftp_server->ftp_mutex);
 
 	/* open a data socket */
 	sock_data = ftp_open_data_socket(ftp_server);
-	if (IS_ERR(sock_data))
-		return sock_data;
+	if (IS_ERR(sock_data)) {
+		err = PTR_ERR(sock_data);
+		goto err;
+	}
 
 	/* send list command */
 	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT)
-		goto err;
+		goto err_release_sock;
 
 	return sock_data;
-err:
+err_release_sock:
 	sock_data->ops->release(sock_data);
+err:
 	mutex_unlock(&ftp_server->ftp_mutex);
-	return ERR_PTR(-ENOSPC);
+	return ERR_PTR(err);
 }
 
 /*

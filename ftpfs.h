@@ -8,13 +8,11 @@
 
 #define FTPFS_FTP_USER_DEFAULT						"anonymous"
 #define FTPFS_FTP_PASSWD_DEFAULT					"anonymous"
-#define FTPFS_CACHE_EXPIRES_SEC_DEFAULT		60
 
 /*
  * FTPFS mount options.
  */
 struct ftpfs_mount_opts {
-	unsigned long									cache_expires_sec;			/* seconds before cached data expires */
 	char													*user;									/* FTP user */
 	char													*passwd;								/* FTP passwd */
 };
@@ -39,9 +37,6 @@ struct ftpfs_sb_info {
  */
 struct ftpfs_inode_info {
 	char													*i_path;								/* inode full path */
-	struct ftp_buffer							i_cache;								/* cached data */
-	struct rw_semaphore						i_cache_rw_sem;					/* cache read/write semaphore */
-	unsigned long									i_cache_expires;				/* jiffies when cache expires */
 	struct inode									vfs_inode;							/* VFS inode */
 };
 
@@ -55,6 +50,9 @@ extern const struct file_operations ftpfs_dir_fops;
 /* FTPFS inode protoypes (defined in inode.c) */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr);
 int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr);
+
+/* FTPFS name resolution prototypes (defined in namei.c) */
+int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);
 
 /*
  * Get FTPFS context from generic context.

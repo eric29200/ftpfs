@@ -14,73 +14,32 @@ static inline bool ftpfs_name_match(struct ftp_fattr *fattr, struct dentry *dent
 /*
  * Find an entry in a directory.
  */
-static int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
+int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
 {
-	char *start, *end, *line = NULL;
-	struct ftp_fattr fattr;
-	size_t off, rem;
-	int ret;
+	struct socket *sock_data;
+	int ret = -ENOENT, n;
 
-	/* load inode data into cache = directory listing */
-	ret = ftpfs_load_inode_data(dir, NULL);
-	if (ret)
-		goto out;
+	/* start directory listing */
+	sock_data = ftp_list_start(ftpfs_sb(dir->i_sb)->s_ftp_server, ftpfs_i(dir)->i_path);
+	if (IS_ERR(sock_data))
+		return PTR_ERR(sock_data);
 
-	/* acquire cache semaphore */
-	down_read(&ftpfs_i(dir)->i_cache_rw_sem);
+	/* for each directory entry */
+	for (;;) {
+		/* get next directory entry */
+		n = ftp_list_next(ftpfs_sb(dir->i_sb)->s_ftp_server, sock_data, fattr_res);
+		if (n <= 0)
+			break;
 
-	/* parse all directory entries */
-	for (off = 0; off < ftpfs_i(dir)->i_cache.len;) {
-		/* compute start line and remaining characters in cache */
-		start = ftpfs_i(dir)->i_cache.data + off;
-		rem = ftpfs_i(dir)->i_cache.len - off;
-
-		/* find end of line or end of buf */
-		end = strnchr(start, rem, '\n');
-		if (!end)
-			end = start + rem;
-
-		/* handle carriage return */
-		if (end > start && *(end - 1) == '\r')
-			end--;
-
-		/* allocate line */
-		line = kmalloc(end - start + 1, GFP_KERNEL);
-		if (!line) {
-			ret = -ENOMEM;
-			goto out;
+		/* check name */
+		if (ftpfs_name_match(fattr_res, dentry)) {
+			ret = 0;
+			break;
 		}
-
-		/* copy line */
-		strncpy(line, start, end - start);
-		line[end - start] = 0;
-
-		/* parse line */
-		if (ftp_parse_dir_entry(line, end - start, &fattr) != 0)
-			goto next_line;
-
-		/* file name matches : save attributes and exit */
-		if (ftpfs_name_match(&fattr, dentry)) {
-			memcpy(fattr_res, &fattr, sizeof(struct ftp_fattr));
-			goto out;
-		}
-
-next_line:
-		/* free line */
-		kfree(line);
-		line = NULL;
-
-		/* go to next line */
-		off = end - ftpfs_i(dir)->i_cache.data + (*end == '\r' ? 2 : 1);
 	}
 
-	ret = -ENOENT;
-out:
-	/* release cache semaphore */
-	up_read(&ftpfs_i(dir)->i_cache_rw_sem);
-
-	/* free last line */
-	kfree(line);
+	/* end directory listing */
+	ftp_list_end(ftpfs_sb(dir->i_sb)->s_ftp_server, sock_data);
 
 	return ret;
 }
@@ -92,9 +51,13 @@ static struct dentry *ftpfs_lookup(struct inode *dir, struct dentry *dentry, uns
 {
 	struct inode *inode = NULL;
 	struct ftp_fattr fattr;
+	int ret;
 
-	/* find entry in dir */
-	if (ftpfs_find_entry(dir, dentry, &fattr) == 0)
+	/* find entry */
+	ret = ftpfs_find_entry(dir, dentry, &fattr);
+
+	/* get inode */
+	if (ret == 0)
 		inode = ftpfs_iget(dir->i_sb, dir, &fattr);
 
 	return d_splice_alias(inode, dentry);

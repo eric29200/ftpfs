@@ -1,44 +1,45 @@
 #include "ftpfs.h"
 
 /*
- * Read target link.
+ * Get a a target link.
  */
-static int ftpfs_readlink(struct dentry *dentry, char __user *buf, int buf_len)
+static const char *ftpfs_get_link(struct dentry *dentry, struct inode *inode, struct delayed_call *done)
 {
-	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(dentry->d_inode);
-	int len;
+	struct ftp_fattr fattr;
+	int ret, len;
+	char *res;
 
-	/* check link */
-	if (!S_ISLNK(dentry->d_inode->i_mode))
-		return -ENOLINK;
+	/* check dentry */
+	if (!dentry)
+		return ERR_PTR(-ECHILD);
 
-	/* acquire cache semaphore */
-	down_read(&ftpfs_inode->i_cache_rw_sem);
+	/* find link entry in parent directory */
+	ret = ftpfs_find_entry(dentry->d_parent->d_inode, dentry, &fattr);
+	if (ret)
+		return ERR_PTR(ret);
 
-	/* inode cache is empty : should not be possible */
-	if (!ftpfs_inode->i_cache.data) {
-		len = -ENOLINK;
-		goto out;
-	}
+	/* check link target */
+	len = strnlen(fattr.f_link, FTP_MAX_NAMELEN);
+	if (!len)
+		return ERR_PTR(-ENOLINK);
 
-	/* compute link length */
-	len = ftpfs_inode->i_cache.len;
-	if (len > buf_len)
-		len = buf_len;
+	/* allocate target link */
+	res = kmalloc(len + 1, GFP_KERNEL);
+	if (!res)
+		return ERR_PTR(-ENOMEM);
 
-	/* copy to user buffer */
-	if (copy_to_user(buf, ftpfs_inode->i_cache.data, len))
-		len = -EFAULT;
+	/* copy target link */
+	memcpy(res, fattr.f_link, len);
+	res[len] = 0;
 
-out:
-	/* release cache semaphore */
-	up_read(&ftpfs_inode->i_cache_rw_sem);
-	return len;
+	/* delay link deallocation */
+	set_delayed_call(done, kfree_link, res);
+	return res;
 }
 
 /*
  * FTPFS symbolic link inode operations.
  */
 const struct inode_operations ftpfs_symlink_iops = {
-	.readlink				= ftpfs_readlink,
+	.get_link				= ftpfs_get_link,
 };

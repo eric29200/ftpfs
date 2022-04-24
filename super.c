@@ -59,10 +59,6 @@ static struct inode *ftpfs_alloc_inode(struct super_block *sb)
  */
 static void ftpfs_evict_inode(struct inode *inode)
 {
-	/* free cached data */
-	if (ftpfs_i(inode)->i_cache.data)
-		kfree(ftpfs_i(inode)->i_cache.data);
-
 	/* free inode full path */
 	if (ftpfs_i(inode)->i_path)
 		kfree(ftpfs_i(inode)->i_path);
@@ -192,7 +188,6 @@ err:
  * FTPFS mount options.
  */
 enum {
-	Opt_cache_expires_sec,
 	Opt_user,
 	Opt_passwd,
 };
@@ -201,9 +196,8 @@ enum {
  * FTPFS parameters.
  */
 static struct fs_parameter_spec ftpfs_fs_parameters[] = {
-	fsparam_u32("cache_expires_sec"	,				Opt_cache_expires_sec	),
-	fsparam_string("username"				,				Opt_user							),
-	fsparam_string("password"				,				Opt_passwd						),
+	fsparam_string("username",				Opt_user),
+	fsparam_string("password",				Opt_passwd),
 	{},
 };
 
@@ -221,9 +215,6 @@ static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *para
 		return opt;
 
 	switch (opt) {
-	case Opt_cache_expires_sec:
-		ctx->fs_opt.cache_expires_sec = res.uint_32;
-		break;
 	case Opt_user:
 		if (!param->string)
 			return -EINVAL;
@@ -285,7 +276,6 @@ int ftpfs_init_fs_context(struct fs_context *fc)
 		return -ENOMEM;
 
 	/* set default options */
-	ctx->fs_opt.cache_expires_sec = FTPFS_CACHE_EXPIRES_SEC_DEFAULT;
 	ctx->fs_opt.user = FTPFS_FTP_USER_DEFAULT;
 	ctx->fs_opt.passwd = FTPFS_FTP_PASSWD_DEFAULT;
 

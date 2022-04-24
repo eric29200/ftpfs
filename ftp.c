@@ -22,7 +22,7 @@ static int ftp_sendmsg(struct socket *sock, struct msghdr *msg, struct kvec *iov
 
 	ret = kernel_sendmsg(sock, msg, iov, 1, iov->iov_len);
 	if (ret == -ERESTARTSYS) {
-		msleep(1);
+		msleep(100);
 		ret = kernel_sendmsg(sock, msg, iov, 1, iov->iov_len);
 	}
 
@@ -38,7 +38,7 @@ static int ftp_recvmsg(struct socket *sock, struct msghdr *msg, struct kvec *iov
 
 	ret = kernel_recvmsg(sock, msg, iov, 1, iov->iov_len, 0);
 	if (ret == -ERESTARTSYS) {
-		msleep(1);
+		msleep(100);
 		ret = kernel_recvmsg(sock, msg, iov, 1, iov->iov_len, 0);
 	}
 
@@ -362,7 +362,7 @@ err:
 /*
  * Parse a FTP directory line into file attributes.
  */
-int ftp_parse_dir_entry(char *line, int len, struct ftp_fattr *fattr)
+static int ftp_parse_dir_entry(char *line, int len, struct ftp_fattr *fattr)
 {
 	unsigned int year, month, day, hour, min;
 	char mode[12], *tok, *link_marker;
@@ -375,8 +375,16 @@ int ftp_parse_dir_entry(char *line, int len, struct ftp_fattr *fattr)
 	memset(fattr->f_link, 0, FTP_MAX_NAMELEN);
 
 	/* remove ending '\n' */
+	if (len <= 0)
+		goto err;
 	if (line[len - 1] == '\n')
-		line[len - 1] = 0;
+		line[--len] = 0;
+
+	/* remove ending '\r' */
+	if (len <= 0)
+		goto err;
+	if (line[len - 1] == '\r')
+		line[--len] = 0;
 
 	/* first field = permissions */
 	tok = strsep(&line, " ");
@@ -464,7 +472,7 @@ int ftp_parse_dir_entry(char *line, int len, struct ftp_fattr *fattr)
 		time_now = ktime_get_real_seconds();
 		time64_to_tm(time_now, 0, &tm_now);
 		year = tm_now.tm_year + 1900;
-	} else if (kstrtouint(tok, 10, &year)) {
+	} else if (!kstrtouint(tok, 10, &year)) {
 		hour = 0;
 		min = 0;
 	} else {
@@ -506,78 +514,70 @@ err:
 }
 
 /*
- * List a directory of a FTP server.
+ * Start a directory listing (= lock the server, open a data socket and send LIST command).
  */
-int ftp_list(struct ftp_server *ftp_server, const char *dir, struct ftp_buffer *ftp_buf)
+struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir)
 {
 	struct socket *sock_data;
-	struct msghdr msg;
-	struct kvec iov;
-	int n, ret = 0;
 
 	/* lock server */
 	mutex_lock(&ftp_server->ftp_mutex);
 
 	/* open a data socket */
 	sock_data = ftp_open_data_socket(ftp_server);
-	if (IS_ERR(sock_data)) {
-		ret = PTR_ERR(sock_data);
-		sock_data = NULL;
-		goto out;
-	}
+	if (IS_ERR(sock_data))
+		return sock_data;
 
 	/* send list command */
-	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT) {
-		ret = -ENOSPC;
-		goto out_release_sock;
-	}
+	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT)
+		goto err;
 
-	/* prepare message */
-	memset(&msg, 0, sizeof(struct msghdr));
-	iov.iov_base = ftp_server->ftp_buf;
-	iov.iov_len = PAGE_SIZE;
-	msg.msg_control = NULL;
-	msg.msg_controllen = 0;
+	return sock_data;
+err:
+	sock_data->ops->release(sock_data);
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ERR_PTR(-ENOSPC);
+}
 
-	/* get data and copy it to output buffer */
-	for (;;) {
-		/* get next buffer */
-		n = ftp_recvmsg(sock_data, &msg, &iov);
-		if (n <= 0)
-			break;
+/*
+ * End a directory listing (= close data socket, get server reply and unlock server).
+ */
+void ftp_list_end(struct ftp_server *ftp_server, struct socket *sock_data)
+{
+	if (!sock_data)
+		return;
 
-		/* grow buffer if needed */
-		if (ftp_buf->len + n > ftp_buf->capacity) {
-			ftp_buf->data = (char *) krealloc(ftp_buf->data, ftp_buf->capacity + PAGE_SIZE, GFP_KERNEL);
-			if (!ftp_buf->data) {
-				ret = -ENOMEM;
-				break;
-			}
-
-			ftp_buf->capacity += PAGE_SIZE;
-		}
-
-		/* copy to ftp buffer */
-		memcpy(ftp_buf->data + ftp_buf->len, ftp_server->ftp_buf, n);
-		ftp_buf->len += n;
-	}
-
-out_release_sock:
 	/* close data socket */
 	sock_data->ops->release(sock_data);
 
 	/* get FTP reply */
-	if (ftp_getreply(ftp_server) != FTP_STATUS_OK) {
-		/* free FTP buffer */
-		kfree(ftp_buf->data);
-		memset(ftp_buf, 0, sizeof(struct ftp_buffer));
+	ftp_getreply(ftp_server);
 
-		ret = -ENOSPC;
-	}
-
-out:
+	/* unlock server */
 	mutex_unlock(&ftp_server->ftp_mutex);
-	return ret;
+}
+
+/*
+ * Get next directory entry (this function must be called between ftp_list_start and ftp_list_end).
+ */
+int ftp_list_next(struct ftp_server *ftp_server, struct socket *sock_data, struct ftp_fattr *fattr_res)
+{
+	int n;
+
+	/* reset result */
+	memset(fattr_res, 0, sizeof(struct ftp_fattr));
+
+next_entry:
+	/* get next line */
+	n = ftp_getline(ftp_server, sock_data);
+	if (n <= 0)
+		return n;
+
+	/* parse directory entry (on error, goto next entry) */
+	if (ftp_parse_dir_entry(ftp_server->ftp_buf, n, fattr_res))
+		goto next_entry;
+
+	return n;
 }
 
 /*

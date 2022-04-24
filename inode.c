@@ -3,65 +3,6 @@
 #include "ftpfs.h"
 
 /*
- * Load inode data (= store directory listing or link target).
- */
-int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr)
-{
-	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
-	struct super_block *sb = inode->i_sb;
-	size_t link_len;
-	int ret = 0;
-
-	/* lock cache for writing */
-	down_write(&ftpfs_inode->i_cache_rw_sem);
-
-	/* data cache already set */
-	if (ftpfs_inode->i_cache.data) {
-		/* cache is still valid : exit */
-		if (time_before(jiffies, ftpfs_inode->i_cache_expires))
-			goto out;
-
-		/* cache is not valid anymore : reset it */
-		kfree(ftpfs_inode->i_cache.data);
-		memset(&ftpfs_inode->i_cache, 0, sizeof(struct ftp_buffer));
-	}
-
-	/* symbolic link : load target in cache */
-	if (S_ISLNK(inode->i_mode)) {
-		link_len = strnlen(fattr->f_link, FTP_MAX_NAMELEN);
-		if (link_len > 0) {
-			/* allocate inode cache (to store target link) */
-			ftpfs_inode->i_cache.data = kmalloc(link_len + 1, GFP_KERNEL);
-			if (!ftpfs_inode->i_cache.data) {
-				ret = -ENOMEM;
-				goto out_update_timeout;
-			}
-
-			/* copy target link to inode cache */
-			ftpfs_inode->i_cache.len = link_len;
-			ftpfs_inode->i_cache.capacity = link_len + 1;
-			memcpy(ftpfs_inode->i_cache.data, fattr->f_link, link_len);
-			ftpfs_inode->i_cache.data[link_len] = 0;
-		}
-
-		goto out_update_timeout;
-	}
-
-	/* directory : load listing in cache */
-	if (S_ISDIR(inode->i_mode))
-		ret = ftp_list(ftpfs_sb(sb)->s_ftp_server, ftpfs_inode->i_path, &ftpfs_inode->i_cache);
-
-out_update_timeout:
-	/* update cache timeout */
-	ftpfs_inode->i_cache_expires = jiffies + msecs_to_jiffies(ftpfs_sb(sb)->s_opt.cache_expires_sec * 1000);
-out:
-	/* release cache semaphore */
-	up_write(&ftpfs_inode->i_cache_rw_sem);
-	return ret;
-}
-
-
-/*
  * Build full path of a file (concat directory path and file name).
  */
 static char *ftpfs_build_full_path(struct inode *dir, struct ftp_fattr *fattr)
@@ -118,9 +59,7 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
 	set_nlink(inode, fattr->f_nlinks);
 	inode->i_size = fattr->f_size;
-	init_rwsem(&ftpfs_inode->i_cache_rw_sem);
 	ftpfs_inode->i_path = NULL;
-	memset(&ftpfs_inode->i_cache, 0, sizeof(struct ftp_buffer));
 
 	/* set time */
 	if (fattr->f_time) {
@@ -135,19 +74,13 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	if (!ftpfs_inode->i_path)
 		goto err;
 
-	/* symbolic link : load inode data = target link */
-	if (S_ISLNK(inode->i_mode)) {
-		err = ftpfs_load_inode_data(inode, fattr);
-		if (err)
-			goto err;
-	}
-
 	/* set inode operations */
 	if (S_ISDIR(inode->i_mode)) {
 		inode->i_op = &ftpfs_dir_iops;
 		inode->i_fop = &ftpfs_dir_fops;
 	} else if (S_ISLNK(inode->i_mode)) {
 		inode->i_op = &ftpfs_symlink_iops;
+		inode_nohighmem(inode);
 	} else {
 		inode->i_op = &ftpfs_file_iops;
 		inode->i_fop = &ftpfs_file_fops;

@@ -55,7 +55,7 @@ struct ftp_fattr {
 
 struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user, const char *ftp_passwd);
 void ftp_server_free(struct ftp_server *ftp_server);
-int ftp_connect(struct ftp_server *ftp_server);
+int ftp_try_connect(struct ftp_server *ftp_server);
 struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir);
 void ftp_list_end(struct ftp_server *ftp_server, struct socket *sock_data);
 int ftp_list_next(struct ftp_server *ftp_server, struct socket *sock_data, struct ftp_fattr *fattr_res);

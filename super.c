@@ -143,7 +143,7 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	}
 
 	/* connect to FTP server */
-	err = ftp_connect(sbi->s_ftp_server);
+	err = ftp_try_connect(sbi->s_ftp_server);
 	if (err)
 		goto err_ftp_connect;
 

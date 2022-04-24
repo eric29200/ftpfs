@@ -191,6 +191,71 @@ static int ftp_resolve_host(struct ftp_server *ftp_server)
 }
 
 /*
+ * Disconnect from server.
+ */
+static void ftp_disconnect(struct ftp_server *ftp_server)
+{
+	if (!ftp_server->ftp_sock || !ftp_server->ftp_sock->ops)
+		return;
+
+	ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+	ftp_server->ftp_sock = NULL;
+}
+
+/*
+ * Connect to a FTP server (server must be locked).
+ */
+static int ftp_connect(struct ftp_server *ftp_server)
+{
+	int err;
+
+	/* disconnect from server */
+	ftp_disconnect(ftp_server);
+
+	/* create socket */
+	err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &ftp_server->ftp_sock);
+	if (err)
+		goto err;
+
+	/* resolve host name */
+	err = ftp_resolve_host(ftp_server);
+	if (err)
+		goto err;
+
+	/* connect to server */
+	ftp_server->ftp_saddr.sin_family = AF_INET;
+	ftp_server->ftp_saddr.sin_port = htons(FTP_PORT);
+	err = ftp_server->ftp_sock->ops->connect(ftp_server->ftp_sock, (struct sockaddr *) &ftp_server->ftp_saddr,
+																					 sizeof(ftp_server->ftp_saddr), O_RDWR);
+	if (err)
+		goto err;
+
+	/* get FTP reply */
+	err = -ENOSPC;
+	if (ftp_getreply(ftp_server) != FTP_STATUS_OK)
+		goto err;
+
+	/* send USER command */
+	if (ftp_cmd(ftp_server, "USER", ftp_server->ftp_user) != FTP_STATUS_OK_SO_FAR)
+		goto err;
+
+	/* send PASS command */
+	if (ftp_cmd(ftp_server, "PASS", ftp_server->ftp_passwd) != FTP_STATUS_OK)
+		goto err;
+
+	/* set binary mode */
+	if (ftp_cmd(ftp_server, "TYPE", "I") != FTP_STATUS_OK)
+		goto err;
+
+	return 0;
+err:
+	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
+		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+
+	return err;
+}
+
+/*
  * Open a data socket.
  */
 static struct socket *ftp_open_data_socket(struct ftp_server *ftp_server)
@@ -240,123 +305,6 @@ err:
 	if (sock)
 		sock->ops->release(sock);
 	return ERR_PTR(err);
-}
-
-/*
- * Create a FTP server.
- */
-struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user, const char *ftp_passwd)
-{
-	struct ftp_server *ftp_server;
-
-	/* check parameters */
-	if (!ftp_sname || !ftp_user || !ftp_passwd)
-		return ERR_PTR(-EINVAL);
-
-	/* allocate FTP server */
-	ftp_server = kzalloc(sizeof(struct ftp_server), GFP_KERNEL);
-	if (!ftp_server)
-		return ERR_PTR(-ENOMEM);
-
-	/* init server mutex */
-	mutex_init(&ftp_server->ftp_mutex);
-
-	/* set FTP server name, user and password */
-	strncpy(ftp_server->ftp_sname, ftp_sname, FTP_SERVER_MAX_LEN - 1);
-	strncpy(ftp_server->ftp_user, ftp_user, FTP_USER_MAX_LEN - 1);
-	strncpy(ftp_server->ftp_passwd, ftp_passwd, FTP_PASSWD_MAX_LEN - 1);
-
-	/* allocate FTP server buffer */
-	ftp_server->ftp_buf = (void *) __get_free_page(GFP_KERNEL);
-	if (!ftp_server->ftp_buf)
-		goto err;
-
-	return ftp_server;
-err:
-	ftp_server_free(ftp_server);
-	return ERR_PTR(-ENOMEM);
-}
-
-/*
- * Free a FTP server.
- */
-void ftp_server_free(struct ftp_server *ftp_server)
-{
-	if (!ftp_server)
-		return;
-
-	/* release socket */
-	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
-		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
-
-	/* free news group buffer */
-	if (ftp_server->ftp_buf)
-		free_page((unsigned long) ftp_server->ftp_buf);
-
-	kfree(ftp_server);
-}
-
-/*
- * Connect to a FTP server.
- */
-int ftp_connect(struct ftp_server *ftp_server)
-{
-	int err;
-
-	/* lock server */
-	mutex_lock(&ftp_server->ftp_mutex);
-
-	/* reset server socket */
-	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops) {
-		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
-		ftp_server->ftp_sock = NULL;
-	}
-
-	/* create socket */
-	err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &ftp_server->ftp_sock);
-	if (err)
-		goto err;
-
-	/* resolve host name */
-	err = ftp_resolve_host(ftp_server);
-	if (err)
-		goto err;
-
-	/* connect to server */
-	ftp_server->ftp_saddr.sin_family = AF_INET;
-	ftp_server->ftp_saddr.sin_port = htons(FTP_PORT);
-	err = ftp_server->ftp_sock->ops->connect(ftp_server->ftp_sock, (struct sockaddr *) &ftp_server->ftp_saddr,
-																					 sizeof(ftp_server->ftp_saddr), O_RDWR);
-	if (err)
-		goto err;
-
-	/* get FTP reply */
-	err = -ENOSPC;
-	if (ftp_getreply(ftp_server) != FTP_STATUS_OK)
-		goto err;
-
-	/* send USER command */
-	if (ftp_cmd(ftp_server, "USER", ftp_server->ftp_user) != FTP_STATUS_OK_SO_FAR)
-		goto err;
-
-	/* send PASS command */
-	if (ftp_cmd(ftp_server, "PASS", ftp_server->ftp_passwd) != FTP_STATUS_OK)
-		goto err;
-
-	/* set binary mode */
-	if (ftp_cmd(ftp_server, "TYPE", "I") != FTP_STATUS_OK)
-		goto err;
-
-	/* release server */
-	mutex_unlock(&ftp_server->ftp_mutex);
-	return 0;
-err:
-	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
-		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
-
-	/* release server */
-	mutex_unlock(&ftp_server->ftp_mutex);
-	return err;
 }
 
 /*
@@ -514,15 +462,90 @@ err:
 }
 
 /*
+ * Create a FTP server.
+ */
+struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user, const char *ftp_passwd)
+{
+	struct ftp_server *ftp_server;
+
+	/* check parameters */
+	if (!ftp_sname || !ftp_user || !ftp_passwd)
+		return ERR_PTR(-EINVAL);
+
+	/* allocate FTP server */
+	ftp_server = kzalloc(sizeof(struct ftp_server), GFP_KERNEL);
+	if (!ftp_server)
+		return ERR_PTR(-ENOMEM);
+
+	/* init server mutex */
+	mutex_init(&ftp_server->ftp_mutex);
+
+	/* set FTP server name, user and password */
+	strncpy(ftp_server->ftp_sname, ftp_sname, FTP_SERVER_MAX_LEN - 1);
+	strncpy(ftp_server->ftp_user, ftp_user, FTP_USER_MAX_LEN - 1);
+	strncpy(ftp_server->ftp_passwd, ftp_passwd, FTP_PASSWD_MAX_LEN - 1);
+
+	/* allocate FTP server buffer */
+	ftp_server->ftp_buf = (void *) __get_free_page(GFP_KERNEL);
+	if (!ftp_server->ftp_buf)
+		goto err;
+
+	return ftp_server;
+err:
+	ftp_server_free(ftp_server);
+	return ERR_PTR(-ENOMEM);
+}
+
+/*
+ * Free a FTP server.
+ */
+void ftp_server_free(struct ftp_server *ftp_server)
+{
+	if (!ftp_server)
+		return;
+
+	/* release socket */
+	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
+		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+
+	/* free news group buffer */
+	if (ftp_server->ftp_buf)
+		free_page((unsigned long) ftp_server->ftp_buf);
+
+	kfree(ftp_server);
+}
+
+/*
+ * Try to connect to a FTP server.
+ */
+int ftp_try_connect(struct ftp_server *ftp_server)
+{
+	int ret;
+
+	mutex_lock(&ftp_server->ftp_mutex);
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		ftp_disconnect(ftp_server);
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	return ret;
+}
+
+/*
  * Start a directory listing (= lock the server, open a data socket and send LIST command).
  */
 struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir)
 {
 	struct socket *sock_data;
-	int err = -ENOSPC;
+	int err;
 
 	/* lock server */
 	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	err = ftp_connect(ftp_server);
+	if (err)
+		goto err;
 
 	/* open a data socket */
 	sock_data = ftp_open_data_socket(ftp_server);
@@ -532,8 +555,10 @@ struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir)
 	}
 
 	/* send list command */
-	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT)
+	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT) {
+		err = -ENOSPC;
 		goto err_release_sock;
+	}
 
 	return sock_data;
 err_release_sock:
@@ -556,6 +581,9 @@ void ftp_list_end(struct ftp_server *ftp_server, struct socket *sock_data)
 
 	/* get FTP reply */
 	ftp_getreply(ftp_server);
+
+	/* disconnect from server */
+	ftp_disconnect(ftp_server);
 
 	/* unlock server */
 	mutex_unlock(&ftp_server->ftp_mutex);
@@ -593,11 +621,16 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
 	struct msghdr msg;
 	struct kvec iov;
 	char nb_buf[64];
-	int n, ret = 0;
 	loff_t off;
+	int n, ret;
 
 	/* lock server */
 	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		goto out;
 
 	/* open a data socket */
 	sock_data = ftp_open_data_socket(ftp_server);
@@ -659,6 +692,9 @@ out_release_sock:
 	ftp_getreply(ftp_server);
 
 out:
+	/* disconnect from server */
+	ftp_disconnect(ftp_server);
+
 	/* release server */
 	mutex_unlock(&ftp_server->ftp_mutex);
 

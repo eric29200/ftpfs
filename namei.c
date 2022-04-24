@@ -67,5 +67,5 @@ static struct dentry *ftpfs_lookup(struct inode *dir, struct dentry *dentry, uns
  * FTPFS directory inode operations.
  */
 const struct inode_operations ftpfs_dir_iops = {
-	.lookup				 = ftpfs_lookup,
+	.lookup		= ftpfs_lookup,
 };

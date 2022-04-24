@@ -49,5 +49,5 @@ out:
  * FTPFS directory file operations.
  */
 const struct file_operations ftpfs_dir_fops = {
-	.iterate_shared			= ftpfs_readdir,
+	.iterate_shared		= ftpfs_readdir,
 };

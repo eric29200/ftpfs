@@ -91,8 +91,8 @@ static void init_once(void *foo)
 static int __init init_inodecache(void)
 {
 	ftpfs_inode_cache = kmem_cache_create("ftpfs_inode_cache", sizeof(struct ftpfs_inode_info), 0,
-																				SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD | SLAB_ACCOUNT,
-																				init_once);
+					      SLAB_RECLAIM_ACCOUNT | SLAB_MEM_SPREAD | SLAB_ACCOUNT,
+					      init_once);
 	if (!ftpfs_inode_cache)
 		return -ENOMEM;
 
@@ -112,11 +112,11 @@ static void destroy_inodecache(void)
  * FTPFS super operations.
  */
 static struct super_operations ftpfs_sops = {
-	.alloc_inode					= ftpfs_alloc_inode,
-	.free_inode						= ftpfs_free_inode,
-	.evict_inode					= ftpfs_evict_inode,
-	.put_super						= ftpfs_put_super,
-	.statfs								= ftpfs_statfs,
+	.alloc_inode		= ftpfs_alloc_inode,
+	.free_inode		= ftpfs_free_inode,
+	.evict_inode		= ftpfs_evict_inode,
+	.put_super		= ftpfs_put_super,
+	.statfs			= ftpfs_statfs,
 };
 
 /*
@@ -197,8 +197,8 @@ enum {
  * FTPFS parameters.
  */
 static struct fs_parameter_spec ftpfs_fs_parameters[] = {
-	fsparam_string("username",				Opt_user),
-	fsparam_string("password",				Opt_passwd),
+	fsparam_string("username",		Opt_user),
+	fsparam_string("password",		Opt_passwd),
 	{},
 };
 
@@ -259,9 +259,9 @@ static void ftpfs_fc_free(struct fs_context *fc)
  * FTPFS context operations.
  */
 static struct fs_context_operations ftpfs_context_ops = {
-	.parse_param					= ftpfs_fc_parse_param,
-	.get_tree							= ftpfs_fc_get_tree,
-	.free									= ftpfs_fc_free,
+	.parse_param		= ftpfs_fc_parse_param,
+	.get_tree		= ftpfs_fc_get_tree,
+	.free			= ftpfs_fc_free,
 };
 
 /*
@@ -291,10 +291,10 @@ int ftpfs_init_fs_context(struct fs_context *fc)
  * FTPFS file system type.
  */
 static struct file_system_type ftpfs_type = {
-	.owner							= THIS_MODULE,
-	.name								= "ftpfs",
-	.init_fs_context		= ftpfs_init_fs_context,
-	.kill_sb						= kill_anon_super,
+	.owner			= THIS_MODULE,
+	.name			= "ftpfs",
+	.init_fs_context	= ftpfs_init_fs_context,
+	.kill_sb		= kill_anon_super,
 };
 
 /*

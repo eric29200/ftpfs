@@ -102,7 +102,7 @@ static int ftp_getreply(struct ftp_server *ftp_server)
 		n = ftp_getline(ftp_server, ftp_server->ftp_sock);
 		if (n < 0)
 			return n;
-		else if (n == 0)
+		if (n == 0)
 			return FTP_STATUS_KO;
 
 		/* break on FTP status message */
@@ -111,7 +111,7 @@ static int ftp_getreply(struct ftp_server *ftp_server)
 		if (i == 0 && ftp_server->ftp_buf[3] != '-')
 			break;
 		if (i != 0 && isdigit(ftp_server->ftp_buf[0]) && isdigit(ftp_server->ftp_buf[1])
-				&& isdigit(ftp_server->ftp_buf[2]) && ftp_server->ftp_buf[3] == ' ')
+		    && isdigit(ftp_server->ftp_buf[2]) && ftp_server->ftp_buf[3] == ' ')
 			break;
 	}
 
@@ -155,7 +155,7 @@ static int ftp_cmd(struct ftp_server *ftp_server, const char *cmd, const char *a
 	err = ftp_sendmsg(ftp_server->ftp_sock, &msg, &iov);
 	if (err < 0)
 		return err;
-	else if (err != iov.iov_len)
+	if (err != iov.iov_len)
 		return FTP_STATUS_KO;
 
 	/* return FTP reply */
@@ -176,13 +176,13 @@ static int ftp_resolve_host(struct ftp_server *ftp_server)
 
 	/* resolve host name */
 	ip_len = dns_query(&init_net, NULL, ftp_server->ftp_sname, strlen(ftp_server->ftp_sname),
-										 NULL, &ip_addr, NULL, false);
+			   NULL, &ip_addr, NULL, false);
 	if (ip_len < 0)
 		return -ESRCH;
 
 	/* build ip address */
 	sa_len = rpc_pton(&init_net, ip_addr, ip_len, (struct sockaddr *) &ftp_server->ftp_saddr,
-										sizeof(ftp_server->ftp_saddr));
+			  sizeof(ftp_server->ftp_saddr));
 	if (sa_len < 0)
 		err = sa_len;
 
@@ -226,7 +226,7 @@ static int ftp_connect(struct ftp_server *ftp_server)
 	ftp_server->ftp_saddr.sin_family = AF_INET;
 	ftp_server->ftp_saddr.sin_port = htons(FTP_PORT);
 	err = ftp_server->ftp_sock->ops->connect(ftp_server->ftp_sock, (struct sockaddr *) &ftp_server->ftp_saddr,
-																					 sizeof(ftp_server->ftp_saddr), O_RDWR);
+						 sizeof(ftp_server->ftp_saddr), O_RDWR);
 	if (err)
 		goto err;
 
@@ -523,9 +523,11 @@ int ftp_try_connect(struct ftp_server *ftp_server)
 	int ret;
 
 	mutex_lock(&ftp_server->ftp_mutex);
+
 	ret = ftp_connect(ftp_server);
-	if (ret)
+	if (ret == 0)
 		ftp_disconnect(ftp_server);
+
 	mutex_unlock(&ftp_server->ftp_mutex);
 
 	return ret;

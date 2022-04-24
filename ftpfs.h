@@ -6,38 +6,38 @@
 
 #include "ftp.h"
 
-#define FTPFS_FTP_USER_DEFAULT						"anonymous"
-#define FTPFS_FTP_PASSWD_DEFAULT					"anonymous"
+#define FTPFS_FTP_USER_DEFAULT		"anonymous"
+#define FTPFS_FTP_PASSWD_DEFAULT	"anonymous"
 
 /*
  * FTPFS mount options.
  */
 struct ftpfs_mount_opts {
-	char													*user;									/* FTP user */
-	char													*passwd;								/* FTP passwd */
+	char				*user;			/* FTP user */
+	char				*passwd;		/* FTP passwd */
 };
 
 /*
  * FTPFS file system context.
  */
 struct ftpfs_fs_context {
-	struct ftpfs_mount_opts				fs_opt;									/* mount options */
+	struct ftpfs_mount_opts		fs_opt;			/* mount options */
 };
 
 /*
  * FTPFS in memory super block.
  */
 struct ftpfs_sb_info {
-	struct ftp_server							*s_ftp_server;					/* FTP server */
-	struct ftpfs_mount_opts				s_opt;									/* mount options */
+	struct ftp_server		*s_ftp_server;		/* FTP server */
+	struct ftpfs_mount_opts		s_opt;			/* mount options */
 };
 
 /*
  * FTPFS in memory inode.
  */
 struct ftpfs_inode_info {
-	char													*i_path;								/* inode full path */
-	struct inode									vfs_inode;							/* VFS inode */
+	char				*i_path;		/* inode full path */
+	struct inode			vfs_inode;		/* VFS inode */
 };
 
 /* FTPFS operations */

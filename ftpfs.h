@@ -50,7 +50,6 @@ extern const struct file_operations ftpfs_dir_fops;
 
 /* FTPFS inode protoypes (defined in inode.c) */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr);
-int ftpfs_load_inode_data(struct inode *inode, struct ftp_fattr *fattr);
 
 /* FTPFS name resolution prototypes (defined in namei.c) */
 int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);

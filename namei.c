@@ -1,3 +1,5 @@
+#include <linux/pagemap.h>
+
 #include "ftpfs.h"
 
 /*
@@ -16,31 +18,45 @@ static inline bool ftpfs_name_match(struct ftp_fattr *fattr, struct dentry *dent
  */
 int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
 {
-	struct socket *sock_data;
-	int ret = -ENOENT, n;
+	int name_len, i, ret = -ENOENT;
+	struct ftp_fattr *fattr;
+	unsigned long pg_idx;
+	struct page *page;
 
-	/* start directory listing */
-	sock_data = ftp_list_start(ftpfs_sb(dir->i_sb)->s_ftp_server, ftpfs_i(dir)->i_path);
-	if (IS_ERR(sock_data))
-		return PTR_ERR(sock_data);
+	/* for each page */
+	for (pg_idx = 0, i = 0;; pg_idx++, i = 0) {
+		/* read next page */
+		page = read_mapping_page(dir->i_mapping, pg_idx, NULL);
+		if (IS_ERR(page))
+			goto out;
 
-	/* for each directory entry */
-	for (;;) {
-		/* get next directory entry */
-		n = ftp_list_next(ftpfs_sb(dir->i_sb)->s_ftp_server, sock_data, fattr_res);
-		if (n <= 0)
-			break;
+		/* get directory entries */
+		fattr = (struct ftp_fattr *) page_address(page);
 
-		/* check name */
-		if (ftpfs_name_match(fattr_res, dentry)) {
-			ret = 0;
-			break;
+		/* for each directory entry in the page */
+		for (; i < PAGE_SIZE / sizeof(struct ftp_fattr); i++) {
+			/* empty name = end of directory */
+			name_len = strnlen(fattr[i].f_name, FTP_MAX_NAMELEN);
+			if (!name_len)
+				goto out_release_page;
+
+			/* name match */
+			if (ftpfs_name_match(&fattr[i], dentry)) {
+			    memcpy(fattr_res, &fattr[i], sizeof(struct ftp_fattr));
+			    ret = 0;
+			    goto out_release_page;
+			}
 		}
+
+		/* release page */
+		kunmap(page);
+		put_page(page);
 	}
 
-	/* end directory listing */
-	ftp_list_end(ftpfs_sb(dir->i_sb)->s_ftp_server, sock_data);
-
+out_release_page:
+	kunmap(page);
+	put_page(page);
+out:
 	return ret;
 }
 

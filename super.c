@@ -59,6 +59,9 @@ static struct inode *ftpfs_alloc_inode(struct super_block *sb)
  */
 static void ftpfs_evict_inode(struct inode *inode)
 {
+	/* truncate inode pages */
+	truncate_inode_pages_final(&inode->i_data);
+
 	/* free inode full path */
 	if (ftpfs_i(inode)->i_path)
 		kfree(ftpfs_i(inode)->i_path);

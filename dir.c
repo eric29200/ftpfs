@@ -157,7 +157,7 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 
 	/* compute start page */
 	pg_idx = (ctx->pos - 2) / FTPFS_ENTRIES_PER_PAGE;
-	i = (ctx->pos - 2) / FTPFS_ENTRIES_PER_PAGE;
+	i = (ctx->pos - 2) % FTPFS_ENTRIES_PER_PAGE;
 
 	/* for each page */
 	for (;; pg_idx++, i = 0) {

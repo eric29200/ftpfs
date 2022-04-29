@@ -576,9 +576,6 @@ err:
  */
 void ftp_list_end(struct ftp_server *ftp_server, struct socket *sock_data)
 {
-	if (!sock_data)
-		return;
-
 	/* close data socket */
 	sock_data->ops->release(sock_data);
 

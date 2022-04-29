@@ -38,7 +38,6 @@ static int ftpfs_populate_dir_page(struct inode *inode, struct socket **sock_dat
 
 	/* start directory listing if needed */
 	if (!*sock_data) {
-		printk(KERN_ALERT "OK\n");
 		*sock_data = ftp_list_start(ftpfs_sb(inode->i_sb)->s_ftp_server, ftpfs_i(inode)->i_path);
 		if (IS_ERR(*sock_data))
 			return PTR_ERR(*sock_data);

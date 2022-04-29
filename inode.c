@@ -75,7 +75,6 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	if (S_ISDIR(inode->i_mode)) {
 		inode->i_op = &ftpfs_dir_iops;
 		inode->i_fop = &ftpfs_dir_fops;
-		inode->i_mapping->a_ops = &ftpfs_dir_aops;
 	} else if (S_ISLNK(inode->i_mode)) {
 		inode->i_op = &ftpfs_symlink_iops;
 		inode_nohighmem(inode);

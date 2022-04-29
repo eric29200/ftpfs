@@ -47,15 +47,12 @@ extern const struct inode_operations ftpfs_dir_iops;
 extern const struct inode_operations ftpfs_symlink_iops;
 extern const struct file_operations ftpfs_file_fops;
 extern const struct file_operations ftpfs_dir_fops;
-extern const struct address_space_operations ftpfs_dir_aops;
 
 /* FTPFS inode protoypes (defined in inode.c) */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr);
 
-/* FTPFS name resolution prototypes (defined in namei.c) */
+/* FTPFS directory prototypes (defined in dir.c) */
 int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);
-
-int ftpfs_test(struct inode *inode);
 
 /*
  * Get FTPFS context from generic context.

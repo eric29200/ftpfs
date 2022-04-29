@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -173,15 +174,15 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 
 	return 0;
 err_no_root:
-	printk(KERN_ERR "FTPFS : can't get root inode\n");
+	pr_err("FTPFS : can't get root inode\n");
 	goto err_free_ftp_server;
 err_ftp_connect:
-	printk(KERN_ERR "FTPFS : can't connect to FTP server \"%s\"\n", fc->source);
+	pr_err("FTPFS : can't connect to FTP server \"%s\"\n", fc->source);
 err_free_ftp_server:
 	ftp_server_free(sbi->s_ftp_server);
 	goto err;
 err_ftp_server_create:
-	printk(KERN_ERR "FTPFS : can't create FTP server \"%s\"\n", fc->source);
+	pr_err("FTPFS : can't create FTP server \"%s\"\n", fc->source);
 err:
 	kfree(sbi);
 	sb->s_fs_info = NULL;

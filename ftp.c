@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/module.h>
 #include <linux/ctype.h>
 #include <linux/dns_resolver.h>
@@ -118,7 +119,7 @@ static int ftp_getreply(struct ftp_server *ftp_server)
 	/* return FTP status code */
 	ret = ftp_server->ftp_buf[0] - '0';
 	if (ret == FTP_STATUS_KO)
-		printk(KERN_ERR "FTPFS : %s", ftp_server->ftp_buf);
+		pr_err("FTPFS : %s", ftp_server->ftp_buf);
 
 	return ret;
 }

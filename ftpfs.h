@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef _FTPFS_H_
 #define _FTPFS_H_
 

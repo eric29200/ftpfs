@@ -194,6 +194,7 @@ err:
 enum {
 	Opt_user,
 	Opt_passwd,
+	Opt_dir_revalid_sec,
 };
 
 /*
@@ -202,6 +203,7 @@ enum {
 static struct fs_parameter_spec ftpfs_fs_parameters[] = {
 	fsparam_string("username",		Opt_user),
 	fsparam_string("password",		Opt_passwd),
+	fsparam_u32("dir_revalid_sec",		Opt_dir_revalid_sec),
 	{},
 };
 
@@ -232,6 +234,9 @@ static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *para
 
 		ctx->fs_opt.passwd = param->string;
 		param->string = NULL;
+		break;
+	case Opt_dir_revalid_sec:
+		ctx->fs_opt.dir_revalid_sec = res.uint_32;
 		break;
 	default:
 		return -ENOPARAM;
@@ -282,6 +287,7 @@ int ftpfs_init_fs_context(struct fs_context *fc)
 	/* set default options */
 	ctx->fs_opt.user = FTPFS_FTP_USER_DEFAULT;
 	ctx->fs_opt.passwd = FTPFS_FTP_PASSWD_DEFAULT;
+	ctx->fs_opt.dir_revalid_sec = FTPFS_DIR_REVALID_SEC;
 
 	/* set context */
 	fc->fs_private = ctx;

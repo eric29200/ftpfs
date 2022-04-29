@@ -38,6 +38,7 @@ static int ftpfs_populate_dir_page(struct inode *inode, struct socket **sock_dat
 
 	/* start directory listing if needed */
 	if (!*sock_data) {
+		printk(KERN_ALERT "OK\n");
 		*sock_data = ftp_list_start(ftpfs_sb(inode->i_sb)->s_ftp_server, ftpfs_i(inode)->i_path);
 		if (IS_ERR(*sock_data))
 			return PTR_ERR(*sock_data);
@@ -141,6 +142,9 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 	struct page *page = NULL;
 	struct ftp_fattr *fattr;
 
+	/* revalidate inode mapping */
+	ftpfs_inode_revalidate_mapping(inode);
+
 	/* emit "." */
 	if (ctx->pos == 0) {
 		if (ctx->actor(ctx, ".", 1, ctx->pos, 1, DT_DIR))
@@ -219,6 +223,9 @@ int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr 
 	int ret = 0, i, name_len;
 	struct page *page = NULL;
 	struct ftp_fattr *fattr;
+
+	/* revalidate inode mapping */
+	ftpfs_inode_revalidate_mapping(dir);
 
 	/* for each page */
 	for (pg_idx = 0;; pg_idx++) {

@@ -8,6 +8,7 @@
 
 #define FTPFS_FTP_USER_DEFAULT		"anonymous"
 #define FTPFS_FTP_PASSWD_DEFAULT	"anonymous"
+#define FTPFS_DIR_REVALID_SEC		10
 
 /*
  * FTPFS mount options.
@@ -15,6 +16,7 @@
 struct ftpfs_mount_opts {
 	char				*user;			/* FTP user */
 	char				*passwd;		/* FTP passwd */
+	unsigned long			dir_revalid_sec;	/* frequency to revalidate directories (in second) */
 };
 
 /*
@@ -37,6 +39,7 @@ struct ftpfs_sb_info {
  */
 struct ftpfs_inode_info {
 	char				*i_path;		/* inode full path */
+	unsigned long			i_mapping_expires;	/* jiffies when inode mapping expires */
 	struct inode			vfs_inode;		/* VFS inode */
 };
 
@@ -50,6 +53,7 @@ extern const struct file_operations ftpfs_dir_fops;
 
 /* FTPFS inode protoypes (defined in inode.c) */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr);
+int ftpfs_inode_revalidate_mapping(struct inode *inode);
 
 /* FTPFS directory prototypes (defined in dir.c) */
 int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);

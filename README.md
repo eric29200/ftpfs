@@ -1,7 +1,7 @@
 # Linux Kernel FTP file systems 
 
 Example :
-    mount -t ftpfs ftp.fr.debian.org -o username=anonymous,password=anonymous /mnt/ftp/
+    mount -t ftpfs ftp.fr.debian.org -o username=anonymous,password=anonymous,dir_revalid_sec=20 /mnt/ftp/
     
 - On each FTP request (for example RETR or LIST), the filesystem connects to the server and executes the request.
 - Inodes are identified by absolute path (no inode number).

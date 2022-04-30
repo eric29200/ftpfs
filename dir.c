@@ -148,19 +148,9 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 	/* revalidate inode mapping */
 	ftpfs_inode_revalidate_mapping(inode);
 
-	/* emit "." */
-	if (ctx->pos == 0) {
-		if (ctx->actor(ctx, ".", 1, ctx->pos, 1, DT_DIR))
-			return 0;
-		ctx->pos = 1;
-	}
-
-	/* emit ".." */
-	if (ctx->pos == 1) {
-		if (ctx->actor(ctx, "..", 2, ctx->pos, 1, DT_DIR))
-			return 0;
-		ctx->pos = 2;
-	}
+	/* emit "." and ".." */
+	if (!dir_emit_dots(file, ctx))
+		return 0;
 
 	/* compute start page */
 	pg_idx = (ctx->pos - 2) / FTPFS_ENTRIES_PER_PAGE;

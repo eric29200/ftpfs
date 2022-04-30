@@ -132,7 +132,7 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	struct ftp_fattr root_fattr;
 	struct ftpfs_sb_info *sbi;
 	struct inode *root_inode;
-	int err;
+	int ret;
 
 	/* allocate FTPFS super block */
 	sb->s_fs_info = sbi = kmalloc(sizeof(struct ftpfs_sb_info), GFP_KERNEL);
@@ -142,13 +142,13 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	/* create FTP server */
 	sbi->s_ftp_server = ftp_server_create(fc->source, ctx->fs_opt.user, ctx->fs_opt.passwd);
 	if (IS_ERR(sbi->s_ftp_server)) {
-		err = PTR_ERR(sbi->s_ftp_server);
+		ret = PTR_ERR(sbi->s_ftp_server);
 		goto err_ftp_server_create;
 	}
 
 	/* connect to FTP server */
-	err = ftp_try_connect(sbi->s_ftp_server);
-	if (err)
+	ret = ftp_try_connect(sbi->s_ftp_server);
+	if (ret)
 		goto err_ftp_connect;
 
 	/* set super block */
@@ -161,14 +161,14 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	root_fattr.f_mode = S_IFDIR | 0755;
 	root_inode = ftpfs_iget(sb, NULL, &root_fattr);
 	if (IS_ERR(root_inode)) {
-		err = PTR_ERR(root_inode);
+		ret = PTR_ERR(root_inode);
 		goto err_no_root;
 	}
 
 	/* make root inode */
 	sb->s_root = d_make_root(root_inode);
 	if (!sb->s_root) {
-		err = -ENOMEM;
+		ret = -ENOMEM;
 		goto err_no_root;
 	}
 
@@ -186,7 +186,7 @@ err_ftp_server_create:
 err:
 	kfree(sbi);
 	sb->s_fs_info = NULL;
-	return err;
+	return ret;
 }
 
 /*
@@ -312,18 +312,18 @@ static struct file_system_type ftpfs_type = {
  */
 static int __init ftpfs_init(void)
 {
-	int err;
+	int ret;
 
 	/* init inode cache */
-	err = init_inodecache();
-	if (err)
-		return err;
+	ret = init_inodecache();
+	if (ret)
+		return ret;
 
 	/* register FTPFS */
-	err = register_filesystem(&ftpfs_type);
-	if (err) {
+	ret = register_filesystem(&ftpfs_type);
+	if (ret) {
 		destroy_inodecache();
-		return err;
+		return ret;
 	}
 
 	return 0;

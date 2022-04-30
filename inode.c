@@ -63,7 +63,7 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 {
 	struct ftpfs_inode_info *ftpfs_inode;
 	struct inode *inode;
-	int err = -ENOMEM;
+	int ret = -ENOMEM;
 
 	/* allocate a new inode */
 	inode = new_inode(sb);
@@ -107,5 +107,5 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 err:
 	if (inode)
 		iget_failed(inode);
-	return ERR_PTR(err);
+	return ERR_PTR(ret);
 }

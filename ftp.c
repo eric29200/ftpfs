@@ -15,7 +15,7 @@ static const char * const ftp_months[] = {
 };
 
 /*
- * Send a message on a socket (on ERESTARTSYS failure, wait 1 ms and retry).
+ * Send a message on a socket (on ERESTARTSYS failure, wait 100 ms and retry).
  */
 static int ftp_sendmsg(struct socket *sock, struct msghdr *msg, struct kvec *iov)
 {
@@ -31,7 +31,7 @@ static int ftp_sendmsg(struct socket *sock, struct msghdr *msg, struct kvec *iov
 }
 
 /*
- * Receive a message on a socket (on ERESTARTSYS failure, wait 1 ms and retry).
+ * Receive a message on a socket (on ERESTARTSYS failure, wait 100 ms and retry).
  */
 static int ftp_recvmsg(struct socket *sock, struct msghdr *msg, struct kvec *iov)
 {
@@ -53,7 +53,7 @@ static int ftp_getline(struct ftp_server *ftp_server, struct socket *sock)
 {
 	struct msghdr msg;
 	struct kvec iov;
-	int err, n = 0;
+	int ret, n = 0;
 	char c;
 
 	/* prepare message */
@@ -66,12 +66,12 @@ static int ftp_getline(struct ftp_server *ftp_server, struct socket *sock)
 	/* get line */
 	for (n = 0;;) {
 		/* read next character */
-		err = ftp_recvmsg(sock, &msg, &iov);
-		if (err < 0)
-			return err;
+		ret = ftp_recvmsg(sock, &msg, &iov);
+		if (ret < 0)
+			return ret;
 
 		/* end of message */
-		if (!err)
+		if (ret == 0)
 			break;
 
 		/* store character */
@@ -131,7 +131,7 @@ static int ftp_cmd(struct ftp_server *ftp_server, const char *cmd, const char *a
 {
 	struct msghdr msg;
 	struct kvec iov;
-	int err, n;
+	int ret, n;
 
 	/* build command */
 	if (arg)
@@ -153,10 +153,10 @@ static int ftp_cmd(struct ftp_server *ftp_server, const char *cmd, const char *a
 	msg.msg_controllen = 0;
 
 	/* send message */
-	err = ftp_sendmsg(ftp_server->ftp_sock, &msg, &iov);
-	if (err < 0)
-		return err;
-	if (err != iov.iov_len)
+	ret = ftp_sendmsg(ftp_server->ftp_sock, &msg, &iov);
+	if (ret < 0)
+		return ret;
+	if (ret != iov.iov_len)
 		return FTP_STATUS_KO;
 
 	/* return FTP reply */
@@ -168,7 +168,7 @@ static int ftp_cmd(struct ftp_server *ftp_server, const char *cmd, const char *a
  */
 static int ftp_resolve_host(struct ftp_server *ftp_server)
 {
-	int ip_len, sa_len, err = 0;
+	int ip_len, sa_len, ret = 0;
 	char *ip_addr;
 
 	/* check hostname */
@@ -185,10 +185,10 @@ static int ftp_resolve_host(struct ftp_server *ftp_server)
 	sa_len = rpc_pton(&init_net, ip_addr, ip_len, (struct sockaddr *) &ftp_server->ftp_saddr,
 			  sizeof(ftp_server->ftp_saddr));
 	if (sa_len < 0)
-		err = sa_len;
+		ret = sa_len;
 
 	kfree(ip_addr);
-	return err;
+	return ret;
 }
 
 /*
@@ -208,31 +208,31 @@ static void ftp_disconnect(struct ftp_server *ftp_server)
  */
 static int ftp_connect(struct ftp_server *ftp_server)
 {
-	int err;
+	int ret;
 
 	/* disconnect from server */
 	ftp_disconnect(ftp_server);
 
 	/* create socket */
-	err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &ftp_server->ftp_sock);
-	if (err)
+	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &ftp_server->ftp_sock);
+	if (ret)
 		goto err;
 
 	/* resolve host name */
-	err = ftp_resolve_host(ftp_server);
-	if (err)
+	ret = ftp_resolve_host(ftp_server);
+	if (ret)
 		goto err;
 
 	/* connect to server */
 	ftp_server->ftp_saddr.sin_family = AF_INET;
 	ftp_server->ftp_saddr.sin_port = htons(FTP_PORT);
-	err = ftp_server->ftp_sock->ops->connect(ftp_server->ftp_sock, (struct sockaddr *) &ftp_server->ftp_saddr,
+	ret = ftp_server->ftp_sock->ops->connect(ftp_server->ftp_sock, (struct sockaddr *) &ftp_server->ftp_saddr,
 						 sizeof(ftp_server->ftp_saddr), O_RDWR);
-	if (err)
+	if (ret)
 		goto err;
 
 	/* get FTP reply */
-	err = -ENOSPC;
+	ret = -ENOSPC;
 	if (ftp_getreply(ftp_server) != FTP_STATUS_OK)
 		goto err;
 
@@ -253,7 +253,7 @@ err:
 	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
 		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
 
-	return err;
+	return ret;
 }
 
 /*
@@ -263,7 +263,7 @@ static struct socket *ftp_open_data_socket(struct ftp_server *ftp_server)
 {
 	struct socket *sock = NULL;
 	struct sockaddr_in sa;
-	int err = -ENOSPC;
+	int ret = -ENOSPC;
 	int p[6], i;
 	char *s;
 
@@ -292,20 +292,20 @@ static struct socket *ftp_open_data_socket(struct ftp_server *ftp_server)
 	sa.sin_port = htons((p[4] << 8) + p[5]);
 
 	/* create a new socket */
-	err = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
-	if (err)
+	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &sock);
+	if (ret)
 		goto err;
 
 	/* connect to socket */
-	err = sock->ops->connect(sock, (struct sockaddr *) &sa, sizeof(struct sockaddr_in), O_RDWR);
-	if (err)
+	ret = sock->ops->connect(sock, (struct sockaddr *) &sa, sizeof(struct sockaddr_in), O_RDWR);
+	if (ret)
 		goto err;
 
 	return sock;
 err:
 	if (sock)
 		sock->ops->release(sock);
-	return ERR_PTR(err);
+	return ERR_PTR(ret);
 }
 
 /*
@@ -540,26 +540,26 @@ int ftp_try_connect(struct ftp_server *ftp_server)
 struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir)
 {
 	struct socket *sock_data;
-	int err;
+	int ret;
 
 	/* lock server */
 	mutex_lock(&ftp_server->ftp_mutex);
 
 	/* connect to server */
-	err = ftp_connect(ftp_server);
-	if (err)
+	ret = ftp_connect(ftp_server);
+	if (ret)
 		goto err;
 
 	/* open a data socket */
 	sock_data = ftp_open_data_socket(ftp_server);
 	if (IS_ERR(sock_data)) {
-		err = PTR_ERR(sock_data);
+		ret = PTR_ERR(sock_data);
 		goto err;
 	}
 
 	/* send list command */
 	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT) {
-		err = -ENOSPC;
+		ret = -ENOSPC;
 		goto err_release_sock;
 	}
 
@@ -568,7 +568,7 @@ err_release_sock:
 	sock_data->ops->release(sock_data);
 err:
 	mutex_unlock(&ftp_server->ftp_mutex);
-	return ERR_PTR(err);
+	return ERR_PTR(ret);
 }
 
 /*

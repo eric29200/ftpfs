@@ -1,1 +1,0 @@
-- Don't reconnect at each request : try to keep connected

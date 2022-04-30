@@ -10,6 +10,7 @@
 #define FTPFS_FTP_USER_DEFAULT		"anonymous"
 #define FTPFS_FTP_PASSWD_DEFAULT	"anonymous"
 #define FTPFS_DIR_REVALID_SEC		10
+#define FTPFS_UNIQUE_INO		1
 
 /*
  * FTPFS mount options.

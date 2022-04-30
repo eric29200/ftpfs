@@ -180,7 +180,7 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 			}
 
 			/* emit file */
-			if (!dir_emit(ctx, fattr[i].f_name, name_len, 1, DT_UNKNOWN)) {
+			if (!dir_emit(ctx, fattr[i].f_name, name_len, FTPFS_UNIQUE_INO, DT_UNKNOWN)) {
 				kunmap(page);
 				goto out;
 			}

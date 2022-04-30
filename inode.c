@@ -71,7 +71,7 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 		goto err;
 
 	/* init inode */
-	inode->i_ino = get_next_ino();
+	inode->i_ino = 1;
 	ftpfs_inode = ftpfs_i(inode);
 	inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
 	set_nlink(inode, fattr->f_nlinks);

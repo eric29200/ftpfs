@@ -192,26 +192,34 @@ static int ftp_resolve_host(struct ftp_server *ftp_server)
 }
 
 /*
+ * Check if a FTP server is connected.
+ */
+static inline bool ftp_is_connected(struct ftp_server *ftp_server)
+{
+	return ftp_server->ftp_sock && ftp_server->ftp_sock->ops;
+}
+
+/*
  * Disconnect from server.
  */
 static void ftp_disconnect(struct ftp_server *ftp_server)
 {
-	if (!ftp_server->ftp_sock || !ftp_server->ftp_sock->ops)
-		return;
-
-	ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
-	ftp_server->ftp_sock = NULL;
+	if (ftp_is_connected(ftp_server)) {
+		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+		ftp_server->ftp_sock = NULL;
+	}
 }
 
 /*
  * Connect to a FTP server (server must be locked).
  */
-static int ftp_connect(struct ftp_server *ftp_server)
+int ftp_connect(struct ftp_server *ftp_server)
 {
 	int ret;
 
-	/* disconnect from server */
-	ftp_disconnect(ftp_server);
+	/* already connected */
+	if (ftp_is_connected(ftp_server))
+		return 0;
 
 	/* create socket */
 	ret = sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &ftp_server->ftp_sock);
@@ -250,9 +258,7 @@ static int ftp_connect(struct ftp_server *ftp_server)
 
 	return 0;
 err:
-	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
-		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
-
+	ftp_disconnect(ftp_server);
 	return ret;
 }
 
@@ -505,33 +511,14 @@ void ftp_server_free(struct ftp_server *ftp_server)
 	if (!ftp_server)
 		return;
 
-	/* release socket */
-	if (ftp_server->ftp_sock && ftp_server->ftp_sock->ops)
-		ftp_server->ftp_sock->ops->release(ftp_server->ftp_sock);
+	/* disconnect */
+	ftp_disconnect(ftp_server);
 
 	/* free news group buffer */
 	if (ftp_server->ftp_buf)
 		free_page((unsigned long) ftp_server->ftp_buf);
 
 	kfree(ftp_server);
-}
-
-/*
- * Try to connect to a FTP server.
- */
-int ftp_try_connect(struct ftp_server *ftp_server)
-{
-	int ret;
-
-	mutex_lock(&ftp_server->ftp_mutex);
-
-	ret = ftp_connect(ftp_server);
-	if (ret == 0)
-		ftp_disconnect(ftp_server);
-
-	mutex_unlock(&ftp_server->ftp_mutex);
-
-	return ret;
 }
 
 /*
@@ -548,25 +535,27 @@ struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir)
 	/* connect to server */
 	ret = ftp_connect(ftp_server);
 	if (ret)
-		goto err;
+		goto err_connect;
 
 	/* open a data socket */
 	sock_data = ftp_open_data_socket(ftp_server);
 	if (IS_ERR(sock_data)) {
 		ret = PTR_ERR(sock_data);
-		goto err;
+		goto err_sock_data;
 	}
 
 	/* send list command */
 	if (ftp_cmd(ftp_server, "LIST", dir) != FTP_STATUS_OK_INIT) {
 		ret = -ENOSPC;
-		goto err_release_sock;
+		goto err_list;
 	}
 
 	return sock_data;
-err_release_sock:
+err_list:
 	sock_data->ops->release(sock_data);
-err:
+err_sock_data:
+	ftp_disconnect(ftp_server);
+err_connect:
 	mutex_unlock(&ftp_server->ftp_mutex);
 	return ERR_PTR(ret);
 }
@@ -579,8 +568,21 @@ void ftp_list_end(struct ftp_server *ftp_server, struct socket *sock_data)
 	/* close data socket */
 	sock_data->ops->release(sock_data);
 
-	/* get FTP reply */
-	ftp_getreply(ftp_server);
+	/* get FTP reply and disconnect on error */
+	if (ftp_getreply(ftp_server) != FTP_STATUS_OK)
+		ftp_disconnect(ftp_server);
+
+	/* unlock server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+}
+
+/*
+ * End a directory listing with failure (= close data socket and disconnect from server).
+ */
+void ftp_list_failed(struct ftp_server *ftp_server, struct socket *sock_data)
+{
+	/* close data socket */
+	sock_data->ops->release(sock_data);
 
 	/* disconnect from server */
 	ftp_disconnect(ftp_server);
@@ -630,14 +632,13 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
 	/* connect to server */
 	ret = ftp_connect(ftp_server);
 	if (ret)
-		goto out;
+		goto err_connect;
 
 	/* open a data socket */
 	sock_data = ftp_open_data_socket(ftp_server);
 	if (IS_ERR(sock_data)) {
 		ret = PTR_ERR(sock_data);
-		sock_data = NULL;
-		goto out;
+		goto err_sock_data;
 	}
 
 	/* send restore command */
@@ -645,14 +646,14 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
 		snprintf(nb_buf, 64, "%lld", *pos);
 		if (ftp_cmd(ftp_server, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
 			ret = -ENOSPC;
-			goto out_release_sock;
+			goto err_rest_retr;
 		}
 	}
 
 	/* send list command */
 	if (ftp_cmd(ftp_server, "RETR", file_path) != FTP_STATUS_OK_INIT) {
 		ret = -ENOSPC;
-		goto out_release_sock;
+		goto err_rest_retr;
 	}
 
 	/* prepare message */
@@ -681,22 +682,23 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
 		count -= n;
 	}
 
-	/* return number of bytes read */
-	ret = off;
-
-out_release_sock:
 	/* close data socket */
 	sock_data->ops->release(sock_data);
 
-	/* get FTP reply */
-	ftp_getreply(ftp_server);
+	/* get FTP reply and disconnect on error */
+	if (n < 0 || ftp_getreply(ftp_server) == FTP_STATUS_KO)
+		ftp_disconnect(ftp_server);
 
-out:
-	/* disconnect from server */
-	ftp_disconnect(ftp_server);
-
-	/* release server */
+	/* unlock server */
 	mutex_unlock(&ftp_server->ftp_mutex);
 
+	/* return number of bytes read */
+	return off;
+err_rest_retr:
+	sock_data->ops->release(sock_data);
+err_sock_data:
+	ftp_disconnect(ftp_server);
+err_connect:
+	mutex_unlock(&ftp_server->ftp_mutex);
 	return ret;
 }

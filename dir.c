@@ -52,7 +52,7 @@ static int ftpfs_populate_dir_page(struct inode *inode, struct socket **sock_dat
 		/* get next directory entry */
 		ret = ftp_list_next(ftpfs_sb(inode->i_sb)->s_ftp_server, *sock_data, &fattr);
 		if (ret < 0)
-			goto err;
+			goto err_list;
 
 		/* end of dir : break */
 		if (!ret)
@@ -67,7 +67,7 @@ static int ftpfs_populate_dir_page(struct inode *inode, struct socket **sock_dat
 		/* get next directory entry */
 		ret = ftp_list_next(ftpfs_sb(inode->i_sb)->s_ftp_server, *sock_data, &fattr);
 		if (ret < 0)
-			goto err;
+			goto err_list;
 
 		/* end of dir : break */
 		if (!ret)
@@ -86,6 +86,10 @@ out:
 	ClearPageError(page);
 	kunmap(page);
 	return 0;
+err_list:
+	/* finish directory listing */
+	ftp_list_failed(ftpfs_sb(inode->i_sb)->s_ftp_server, *sock_data);
+	*sock_data = NULL;
 err:
 	/* mark page erronous */
 	ClearPageUptodate(page);

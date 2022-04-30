@@ -162,7 +162,7 @@ static int ftpfs_readdir_from_page_cache(struct file *file, struct dir_context *
 				goto out;
 
 			/* emit file */
-			if (!dir_emit(ctx, fattrs[i].f_name, name_len, FTPFS_UNIQUE_INO, DT_UNKNOWN))
+			if (!dir_emit(ctx, fattrs[i].f_name, name_len, 1, DT_UNKNOWN))
 				goto out;
 
 			/* update context position */
@@ -220,7 +220,7 @@ static int ftpfs_readdir_from_ftp(struct file *file, struct dir_context *ctx)
 
 		/* emit file */
 		name_len = strnlen(fattr.f_name, FTP_MAX_NAMELEN);
-		if (!dir_emit(ctx, fattr.f_name, name_len, FTPFS_UNIQUE_INO, DT_UNKNOWN))
+		if (!dir_emit(ctx, fattr.f_name, name_len, 1, DT_UNKNOWN))
 			break;
 
 		/* update dir position */

@@ -237,7 +237,7 @@ static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *para
 		param->string = NULL;
 		break;
 	case Opt_dir_revalid_sec:
-		ctx->fs_opt.dir_revalid_sec = res.uint_32;
+		ctx->fs_opt.dir_revalid_msec = res.uint_32 * 1000;
 		break;
 	default:
 		return -ENOPARAM;
@@ -288,7 +288,7 @@ int ftpfs_init_fs_context(struct fs_context *fc)
 	/* set default options */
 	ctx->fs_opt.user = FTPFS_FTP_USER_DEFAULT;
 	ctx->fs_opt.passwd = FTPFS_FTP_PASSWD_DEFAULT;
-	ctx->fs_opt.dir_revalid_sec = FTPFS_DIR_REVALID_SEC;
+	ctx->fs_opt.dir_revalid_msec = FTPFS_DIR_REVALID_MSEC;
 
 	/* set context */
 	fc->fs_private = ctx;

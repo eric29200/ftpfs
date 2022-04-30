@@ -10,7 +10,7 @@
 
 #define FTPFS_FTP_USER_DEFAULT			"anonymous"
 #define FTPFS_FTP_PASSWD_DEFAULT		"anonymous"
-#define FTPFS_DIR_REVALID_SEC			10
+#define FTPFS_DIR_REVALID_MSEC			300
 #define FTPFS_DIR_ENTRIES_PER_PAGE		(PAGE_SIZE / sizeof(struct ftp_fattr))
 
 /*
@@ -19,7 +19,7 @@
 struct ftpfs_mount_opts {
 	char				*user;			/* FTP user */
 	char				*passwd;		/* FTP passwd */
-	unsigned long			dir_revalid_sec;	/* frequency to revalidate directories (in second) */
+	unsigned long			dir_revalid_msec;	/* frequency to revalidate directories */
 };
 
 /*

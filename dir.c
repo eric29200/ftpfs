@@ -119,7 +119,7 @@ int ftpfs_dir_revalidate_page_cache(struct inode *inode)
 		return ret;
 
 	/* refresh revalidation expiration */
-	ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.dir_revalid_sec * 1000);
+	ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.dir_revalid_msec);
 
 	return 0;
 }

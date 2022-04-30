@@ -14,6 +14,7 @@ ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count, loff_
  */
 const struct file_operations ftpfs_file_fops = {
 	.read		= ftpfs_file_read,
+	.llseek		= generic_file_llseek,
 };
 
 /*

@@ -1,107 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include <linux/pagemap.h>
-
 #include "ftpfs.h"
-
-#define FTPFS_ENTRIES_PER_PAGE		(PAGE_SIZE / sizeof(struct ftp_fattr))
-
-/*
- * Test file names equality.
- */
-static inline bool ftpfs_name_match(struct ftp_fattr *fattr, struct dentry *dentry)
-{
-	if (strnlen(fattr->f_name, FTP_MAX_NAMELEN) != dentry->d_name.len)
-		return false;
-
-	return strncmp(fattr->f_name, dentry->d_name.name, dentry->d_name.len) == 0;
-}
-
-/*
- * Populate a directory page :
- *   - sock_data	: data socket used to get FTP dir listing (if NULL, socket will be created)
- *   - ftp_dir_pos	: current FTP dir listing position
- *   - ftp_dir_idx	: asked FTP dir listing position
- */
-static int ftpfs_populate_dir_page(struct inode *inode, struct socket **sock_data, struct page *page,
-				   unsigned long *ftp_dir_pos, unsigned long ftp_dir_idx)
-{
-	struct ftp_fattr fattr;
-	void *buf;
-	int ret, i;
-
-	/* FTP dir position must be before FTP dir index */
-	if (*ftp_dir_pos > ftp_dir_idx)
-		return -EINVAL;
-
-	/* clear page */
-	buf = kmap(page);
-	memset(buf, 0, PAGE_SIZE);
-
-	/* start directory listing if needed */
-	if (!*sock_data) {
-		*sock_data = ftp_list_start(ftpfs_sb(inode->i_sb)->s_ftp_server, ftpfs_i(inode)->i_path);
-		if (IS_ERR(*sock_data)) {
-			ret = PTR_ERR(*sock_data);
-			*sock_data = NULL;
-			goto err;
-		}
-	}
-
-	/* skip directory entries */
-	while (*ftp_dir_pos < ftp_dir_idx) {
-		/* get next directory entry */
-		ret = ftp_list_next(ftpfs_sb(inode->i_sb)->s_ftp_server, *sock_data, &fattr);
-		if (ret < 0)
-			goto err_list;
-
-		/* end of dir : break */
-		if (!ret)
-			goto out;
-
-		/* update FTP dir position */
-		*ftp_dir_pos += 1;
-	}
-
-	/* copy next directory entries to page */
-	for (i = 0; i < FTPFS_ENTRIES_PER_PAGE; i++) {
-		/* get next directory entry */
-		ret = ftp_list_next(ftpfs_sb(inode->i_sb)->s_ftp_server, *sock_data, &fattr);
-		if (ret < 0)
-			goto err_list;
-
-		/* end of dir : break */
-		if (!ret)
-			goto out;
-
-		/* copy directory entry */
-		memcpy(buf + i * sizeof(struct ftp_fattr), &fattr, sizeof(struct ftp_fattr));
-
-		/* update FTP dir position */
-		*ftp_dir_pos += 1;
-	}
-
-out:
-	/* mark page up to date */
-	SetPageUptodate(page);
-	ClearPageError(page);
-	kunmap(page);
-	return 0;
-err_list:
-	/* finish directory listing */
-	ftp_list_failed(ftpfs_sb(inode->i_sb)->s_ftp_server, *sock_data);
-	*sock_data = NULL;
-err:
-	/* mark page erronous */
-	ClearPageUptodate(page);
-	SetPageError(page);
-	kunmap(page);
-	return ret;
-}
 
 /*
  * Get or create a page.
  */
-static inline struct page *ftpfs_pagecache_get_page(struct inode *inode, pgoff_t index)
+static inline struct page *ftpfs_pagecache_create_page(struct inode *inode, pgoff_t index)
 {
 	return pagecache_get_page(inode->i_mapping, index,
 				  FGP_LOCK | FGP_ACCESSED | FGP_CREAT | FGP_NOWAIT,
@@ -109,81 +12,158 @@ static inline struct page *ftpfs_pagecache_get_page(struct inode *inode, pgoff_t
 }
 
 /*
- * Get or create a page and read it if needed.
+ * Populate a directory cached page (return number of entries or error code).
  */
-static struct page *ftpfs_pagecache_read_page(struct inode *inode, pgoff_t pg_idx, struct socket **sock_data,
-					      unsigned long *ftp_dir_pos)
+static int ftpfs_dir_populate_page(struct inode *inode, pgoff_t pg_idx, struct socket *sock_data)
 {
+	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
+	struct ftp_fattr *fattrs;
 	struct page *page;
-	int ret;
+	int ret = 0, i;
 
-	/* get page from cache */
-	page = ftpfs_pagecache_get_page(inode, pg_idx);
+	/* create a new page */
+	page = ftpfs_pagecache_create_page(inode, pg_idx);
 	if (!page)
-		return NULL;
+		return -ENOMEM;
 
-	/* if page is up to date, just return it */
-	if (PageUptodate(page))
-		return page;
+	/* reset page */
+	fattrs = kmap(page);
+	memset(fattrs, 0, PAGE_SIZE);
 
-	/* or populate it */
-	ret = ftpfs_populate_dir_page(inode, sock_data, page, ftp_dir_pos, pg_idx * FTPFS_ENTRIES_PER_PAGE);
-	if (ret) {
-		unlock_page(page);
-		put_page(page);
-		return NULL;
+	/* copy directory entries to cache */
+	for (i = 0; i < FTPFS_DIR_ENTRIES_PER_PAGE; i++) {
+		/* copy next dir entry */
+		ret = ftp_list_next(sbi->s_ftp_server, sock_data, &fattrs[i]);
+		if (ret < 0)
+			goto err;
+
+		/* end of directory */
+		if (!ret)
+			break;
 	}
 
-	return page;
+	SetPageUptodate(page);
+	ClearPageError(page);
+	kunmap(page);
+	unlock_page(page);
+	put_page(page);
+	return i;
+err:
+	ClearPageUptodate(page);
+	SetPageError(page);
+	kunmap(page);
+	unlock_page(page);
+	put_page(page);
+	return ret;
 }
 
 /*
- * Get directory entries.
+ * Try to load a directory in page cache.
  */
-static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
+static int ftpfs_dir_load_into_page_cache(struct inode *inode)
 {
-	struct inode *inode = file_inode(file);
-	unsigned long pg_idx, ftp_dir_pos = 0;
-	struct socket *sock_data = NULL;
-	int ret = 0, i, name_len;
-	struct page *page = NULL;
-	struct ftp_fattr *fattr;
+	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
+	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
+	struct socket *sock_data;
+	pgoff_t pg_idx;
+	int ret;
 
-	/* revalidate inode mapping */
-	ftpfs_inode_revalidate_mapping(inode);
+	/* start directory listing */
+	sock_data = ftp_list_start(sbi->s_ftp_server, ftpfs_inode->i_path);
+	if (IS_ERR(sock_data))
+		return PTR_ERR(sock_data);
 
-	/* emit "." and ".." */
-	if (!dir_emit_dots(file, ctx))
+	/* for each directory entry */
+	for (pg_idx = 0;; pg_idx++) {
+		/* populate page */
+		ret = ftpfs_dir_populate_page(inode, pg_idx, sock_data);
+		if (ret < 0)
+			goto err;
+
+		/* end of directory */
+		if (ret < FTPFS_DIR_ENTRIES_PER_PAGE)
+			break;
+	}
+
+	/* end directory listing */
+	ftp_list_end(sbi->s_ftp_server, sock_data);
+
+	return 0;
+err:
+	ftp_list_failed(sbi->s_ftp_server, sock_data);
+	return ret;
+}
+
+
+/*
+ * Revalidate a directory (= clear/reload page cache if needed).
+ */
+int ftpfs_dir_revalidate_page_cache(struct inode *inode)
+{
+	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
+	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
+	int ret;
+
+	/* directory still valid */
+	if (time_before(jiffies, ftpfs_inode->i_mapping_expires))
 		return 0;
 
+	/* invalidate all pages */
+	ret = invalidate_inode_pages2(inode->i_mapping);
+	if (ret)
+		return ret;
+
+	/* load directory listing into page cache */
+	ret = ftpfs_dir_load_into_page_cache(inode);
+	if (ret)
+		return ret;
+
+	/* refresh revalidation expiration */
+	ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.dir_revalid_sec * 1000);
+
+	return 0;
+}
+
+/*
+ * Get directory entries (from page cache).
+ */
+static int ftpfs_readdir_from_page_cache(struct file *file, struct dir_context *ctx)
+{
+	struct inode *inode = file_inode(file);
+	int ret = 0, i, name_len;
+	struct ftp_fattr *fattrs;
+	struct page *page;
+	pgoff_t pg_idx;
+
+	/* revalidate directory */
+	ret = ftpfs_dir_revalidate_page_cache(inode);
+	if (ret)
+		return ret;
+
 	/* compute start page */
-	pg_idx = (ctx->pos - 2) / FTPFS_ENTRIES_PER_PAGE;
-	i = (ctx->pos - 2) % FTPFS_ENTRIES_PER_PAGE;
+	pg_idx = (ctx->pos - 2) / FTPFS_DIR_ENTRIES_PER_PAGE;
+	i = (ctx->pos - 2) % FTPFS_DIR_ENTRIES_PER_PAGE;
 
 	/* for each page */
 	for (;; pg_idx++, i = 0) {
 		/* get page from cache */
-		page = ftpfs_pagecache_read_page(inode, pg_idx, &sock_data, &ftp_dir_pos);
+		page = ftpfs_pagecache_get_page(inode, pg_idx);
 		if (!page)
 			break;
 
 		/* map page */
-		fattr = kmap(page);
+		fattrs = kmap(page);
 
 		/* get directory entries */
-		for (; i < FTPFS_ENTRIES_PER_PAGE; i++) {
+		for (; i < FTPFS_DIR_ENTRIES_PER_PAGE; i++) {
 			/* empty file name : end of directory */
-			name_len = strnlen(fattr[i].f_name, FTP_MAX_NAMELEN);
-			if (strnlen(fattr[i].f_name, FTP_MAX_NAMELEN) == 0) {
-				kunmap(page);
+			name_len = strnlen(fattrs[i].f_name, FTP_MAX_NAMELEN);
+			if (strnlen(fattrs[i].f_name, FTP_MAX_NAMELEN) == 0)
 				goto out;
-			}
 
 			/* emit file */
-			if (!dir_emit(ctx, fattr[i].f_name, name_len, FTPFS_UNIQUE_INO, DT_UNKNOWN)) {
-				kunmap(page);
+			if (!dir_emit(ctx, fattrs[i].f_name, name_len, FTPFS_UNIQUE_INO, DT_UNKNOWN))
 				goto out;
-			}
 
 			/* update context position */
 			ctx->pos++;
@@ -199,107 +179,77 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 out:
 	/* release last page */
 	if (page) {
-		unlock_page(page);
-		put_page(page);
-	}
-
-	/* end directory listing */
-	if (sock_data)
-		ftp_list_end(ftpfs_sb(inode->i_sb)->s_ftp_server, sock_data);
-
-	return ret;
-}
-
-/*
- * Find an entry in a directory.
- */
-int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
-{
-	unsigned long pg_idx = 0, ftp_dir_pos = 0;
-	struct socket *sock_data = NULL;
-	int ret = 0, i, name_len;
-	struct page *page = NULL;
-	struct ftp_fattr *fattr;
-
-	/* revalidate inode mapping */
-	ftpfs_inode_revalidate_mapping(dir);
-
-	/* for each page */
-	for (pg_idx = 0;; pg_idx++) {
-		/* get page from cache */
-		page = ftpfs_pagecache_read_page(dir, pg_idx, &sock_data, &ftp_dir_pos);
-		if (!page)
-			break;
-
-		/* map page */
-		fattr = kmap(page);
-
-		/* get directory entries */
-		for (i = 0; i < FTPFS_ENTRIES_PER_PAGE; i++) {
-			/* empty file name : end of directory */
-			name_len = strnlen(fattr[i].f_name, FTP_MAX_NAMELEN);
-			if (strnlen(fattr[i].f_name, FTP_MAX_NAMELEN) == 0) {
-				kunmap(page);
-				ret = -ENOENT;
-				goto out;
-			}
-
-			/* name match */
-			if (ftpfs_name_match(&fattr[i], dentry)) {
-				memcpy(fattr_res, &fattr[i], sizeof(struct ftp_fattr));
-				kunmap(page);
-				ret = 0;
-				goto out;
-			}
-		}
-
-		/* unlock page */
 		kunmap(page);
 		unlock_page(page);
 		put_page(page);
-		page = NULL;
 	}
-
-	ret = -ENOENT;
-out:
-	/* release last page */
-	if (page) {
-		unlock_page(page);
-		put_page(page);
-	}
-
-	/* end directory listing */
-	if (sock_data)
-		ftp_list_end(ftpfs_sb(dir->i_sb)->s_ftp_server, sock_data);
 
 	return ret;
 }
 
 /*
- * Lookup for a file in a directory.
+ * Get directory entries (ask to FTP server).
  */
-static struct dentry *ftpfs_lookup(struct inode *dir, struct dentry *dentry, unsigned int flags)
+static int ftpfs_readdir_from_ftp(struct file *file, struct dir_context *ctx)
 {
-	struct inode *inode = NULL;
+	struct ftpfs_inode_info *ftpfs_dir = ftpfs_i(file->f_inode);
+	struct ftpfs_sb_info *sbi = ftpfs_sb(file->f_inode->i_sb);
+	struct socket *sock_data;
 	struct ftp_fattr fattr;
-	int ret;
+	int ret, i, name_len;
 
-	/* find entry */
-	ret = ftpfs_find_entry(dir, dentry, &fattr);
+	/* start directory listing */
+	sock_data = ftp_list_start(sbi->s_ftp_server, ftpfs_dir->i_path);
+	if (IS_ERR(sock_data))
+		return PTR_ERR(sock_data);
 
-	/* get inode */
-	if (ret == 0)
-		inode = ftpfs_iget(dir->i_sb, dir, &fattr);
+	/* for each directory entry */
+	for (i = 0;; i++) {
+		/* get next directory entry */
+		ret = ftp_list_next(sbi->s_ftp_server, sock_data, &fattr);
+		if (ret < 0)
+			goto err;
 
-	return d_splice_alias(inode, dentry);
+		/* end of directory */
+		if (ret == 0)
+			break;
+
+		/* skip first entries */
+		if (i + 2 < ctx->pos)
+			continue;
+
+		/* emit file */
+		name_len = strnlen(fattr.f_name, FTP_MAX_NAMELEN);
+		if (!dir_emit(ctx, fattr.f_name, name_len, FTPFS_UNIQUE_INO, DT_UNKNOWN))
+			break;
+
+		/* update dir position */
+		ctx->pos++;
+	}
+
+	ftp_list_end(sbi->s_ftp_server, sock_data);
+	return 0;
+err:
+	ftp_list_failed(sbi->s_ftp_server, sock_data);
+	return ret;
 }
 
 /*
- * FTPFS directory inode operations.
+ * Get directory entries.
  */
-const struct inode_operations ftpfs_dir_iops = {
-	.lookup			= ftpfs_lookup,
-};
+static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
+{
+	/* emit "." and ".." */
+	if (!dir_emit_dots(file, ctx))
+		return 0;
+
+	/* readdir from page cache first */
+	if (ftpfs_readdir_from_page_cache(file, ctx) == 0)
+		return 0;
+
+	/* on failure, ask to FTP server */
+	return ftpfs_readdir_from_ftp(file, ctx);
+}
 
 /*
  * FTPFS directory file operations.

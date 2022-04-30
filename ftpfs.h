@@ -4,13 +4,15 @@
 
 #include <linux/fs.h>
 #include <linux/fs_context.h>
+#include <linux/pagemap.h>
 
 #include "ftp.h"
 
-#define FTPFS_FTP_USER_DEFAULT		"anonymous"
-#define FTPFS_FTP_PASSWD_DEFAULT	"anonymous"
-#define FTPFS_DIR_REVALID_SEC		10
-#define FTPFS_UNIQUE_INO		1
+#define FTPFS_FTP_USER_DEFAULT			"anonymous"
+#define FTPFS_FTP_PASSWD_DEFAULT		"anonymous"
+#define FTPFS_DIR_REVALID_SEC			10
+#define FTPFS_UNIQUE_INO			1
+#define FTPFS_DIR_ENTRIES_PER_PAGE		(PAGE_SIZE / sizeof(struct ftp_fattr))
 
 /*
  * FTPFS mount options.
@@ -55,10 +57,12 @@ extern const struct file_operations ftpfs_dir_fops;
 
 /* FTPFS inode protoypes (defined in inode.c) */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr);
-int ftpfs_inode_revalidate_mapping(struct inode *inode);
+
+/* FTPFS name resolution prototypes (defined in namei.c) */
+int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);
 
 /* FTPFS directory prototypes (defined in dir.c) */
-int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);
+int ftpfs_dir_revalidate_page_cache(struct inode *inode);
 
 /*
  * Get FTPFS context from generic context.
@@ -82,6 +86,16 @@ static inline struct ftpfs_sb_info *ftpfs_sb(struct super_block *sb)
 static inline struct ftpfs_inode_info *ftpfs_i(struct inode *inode)
 {
 	return container_of(inode, struct ftpfs_inode_info, vfs_inode);
+}
+
+/*
+ * Get an inode page.
+ */
+static inline struct page *ftpfs_pagecache_get_page(struct inode *inode, pgoff_t index)
+{
+	return pagecache_get_page(inode->i_mapping, index,
+				  FGP_LOCK | FGP_ACCESSED | FGP_NOWAIT,
+				  readahead_gfp_mask(inode->i_mapping) & ~__GFP_FS);
 }
 
 #endif

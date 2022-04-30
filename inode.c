@@ -1,25 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include <linux/fs.h>
-#include <linux/pagemap.h>
-
 #include "ftpfs.h"
-
-/*
- * Revalidate inode cached pages = invalidate all pages on time out expiration.
- */
-int ftpfs_inode_revalidate_mapping(struct inode *inode)
-{
-	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
-	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
-
-	/* on expiration, invalidate all inodes pages */
-	if (time_after(jiffies, ftpfs_inode->i_mapping_expires)) {
-		invalidate_inode_pages2(inode->i_mapping);
-		ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.dir_revalid_sec * 1000);
-	}
-
-	return 0;
-}
 
 /*
  * Build full path of a file (concat directory path and file name).

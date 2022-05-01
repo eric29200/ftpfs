@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/namei.h>
+
 #include "ftpfs.h"
 
 /*
@@ -10,6 +12,13 @@ static int ftpfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	struct dentry *parent;
 	struct inode *dir;
 	int ret;
+
+	/*
+	 * In rcu-walk mode, d_revalidate can't sleep. Return -ECHILD and d_revalidate
+	 * will be called in ref-walk mode (needed because ftpfs_find_entry can sleep) .
+	 */
+	if (flags & LOOKUP_RCU)
+		return -ECHILD;
 
 	/* get parent directory */
 	parent = dget_parent(dentry);

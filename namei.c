@@ -154,9 +154,91 @@ static struct dentry *ftpfs_lookup(struct inode *dir, struct dentry *dentry, uns
 }
 
 /*
+ * Create a new file.
+ */
+static int ftpfs_create(struct user_namespace *mnt_userns, struct inode *dir,
+			struct dentry *dentry, umode_t mode, bool excl)
+{
+	struct ftp_fattr fattr;
+	struct inode *inode;
+	int name_len, ret;
+	char *file_path;
+
+	/* get name length */
+	name_len = dentry->d_name.len;
+	if (name_len > FTP_MAX_NAMELEN)
+		name_len = FTP_MAX_NAMELEN;
+
+	/* build full path */
+	memset(&fattr, 0, sizeof(struct ftp_fattr));
+	memcpy(fattr.f_name, dentry->d_name.name, name_len);
+	file_path = ftpfs_build_full_path(dir, &fattr);
+	if (!file_path)
+		return -ENOMEM;
+
+	/* create file on FTP server */
+	ret = ftp_create(ftpfs_sb(dir->i_sb)->s_ftp_server, file_path);
+	if (ret)
+		goto out;
+
+	/* find newly created entry (reset directory mapping, to lookup on FTP server) */
+	ftpfs_i(dir)->i_mapping_expires = jiffies;
+	ret = ftpfs_find_entry(dir, dentry, &fattr);
+	if (ret)
+		goto out;
+
+	/* get inode */
+	inode = ftpfs_iget(dir->i_sb, dir, &fattr);
+	if (IS_ERR(inode)) {
+		ret = PTR_ERR(inode);
+		goto out;
+	}
+
+	/* register dentry <-> inode */
+	d_instantiate(dentry, inode);
+out:
+	kfree(file_path);
+	return ret;
+}
+
+/*
+ * Remove a file.
+ */
+static int ftpfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+	struct ftp_fattr fattr;
+	int name_len, ret;
+	char *file_path;
+
+	/* get name length */
+	name_len = dentry->d_name.len;
+	if (name_len > FTP_MAX_NAMELEN)
+		name_len = FTP_MAX_NAMELEN;
+
+	/* build full path */
+	memset(fattr.f_name, 0, FTP_MAX_NAMELEN);
+	memcpy(fattr.f_name, dentry->d_name.name, name_len);
+	file_path = ftpfs_build_full_path(dir, &fattr);
+	if (!file_path)
+		return -ENOMEM;
+
+	/* ask FTP to delete file */
+	ret = ftp_rm(ftpfs_sb(dir->i_sb)->s_ftp_server, file_path);
+	if (ret)
+		goto out;
+
+	/* reset directory buffer page cache */
+	ftpfs_i(dir)->i_mapping_expires = jiffies;
+out:
+	kfree(file_path);
+	return ret;
+}
+
+/*
  * FTPFS directory inode operations.
  */
 const struct inode_operations ftpfs_dir_iops = {
 	.lookup			= ftpfs_lookup,
+	.create			= ftpfs_create,
+	.unlink			= ftpfs_unlink,
 };
-

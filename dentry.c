@@ -25,10 +25,17 @@ static int ftpfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	dir = d_inode(parent);
 
 	/* try to find entry */
-	ret = ftpfs_find_entry(dir, dentry, &fattr) == 0;
+	ret = ftpfs_find_entry(dir, dentry, &fattr);
+	if (ret) {
+		dput(parent);
+		return 0;
+	}
+
+	/* refresh inode */
+	ftpfs_refresh_inode(dentry->d_inode, dir, &fattr);
 
 	dput(parent);
-	return ret;
+	return 1;
 }
 
 /*

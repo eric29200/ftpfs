@@ -62,5 +62,8 @@ void ftp_list_end(struct ftp_server *ftp_server, struct socket *sock_data);
 void ftp_list_failed(struct ftp_server *ftp_server, struct socket *sock_data);
 int ftp_list_next(struct ftp_server *ftp_server, struct socket *sock_data, struct ftp_fattr *fattr_res);
 int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *buf, size_t count, loff_t *pos);
+int ftp_write(struct ftp_server *ftp_server, const char *file_path, const char __user *buf, size_t count, loff_t *pos);
+int ftp_create(struct ftp_server *ftp_server, const char *file_path);
+int ftp_rm(struct ftp_server *ftp_server, const char *file_path);
 
 #endif

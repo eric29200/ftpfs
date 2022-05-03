@@ -650,7 +650,7 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
 		}
 	}
 
-	/* send list command */
+	/* send retrieve command */
 	if (ftp_cmd(ftp_server, "RETR", file_path) != FTP_STATUS_OK_INIT) {
 		ret = -ENOSPC;
 		goto err_rest_retr;
@@ -697,6 +697,180 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
 err_rest_retr:
 	sock_data->ops->release(sock_data);
 err_sock_data:
+	ftp_disconnect(ftp_server);
+err_connect:
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ret;
+}
+
+/*
+ * Write data to a FTP server.
+ */
+int ftp_write(struct ftp_server *ftp_server, const char *file_path, const char __user *buf, size_t count, loff_t *pos)
+{
+	struct socket *sock_data;
+	struct msghdr msg;
+	struct kvec iov;
+	char nb_buf[64];
+	loff_t off;
+	int n, ret;
+
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		goto err_connect;
+
+	/* open a data socket */
+	sock_data = ftp_open_data_socket(ftp_server);
+	if (IS_ERR(sock_data)) {
+		ret = PTR_ERR(sock_data);
+		goto err_sock_data;
+	}
+
+	/* send restore command */
+	if (*pos) {
+		snprintf(nb_buf, 64, "%lld", *pos);
+		if (ftp_cmd(ftp_server, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
+			ret = -ENOSPC;
+			goto err_rest_retr;
+		}
+	}
+
+	/* send store command */
+	if (ftp_cmd(ftp_server, "STOR", file_path) != FTP_STATUS_OK_INIT) {
+		ret = -ENOSPC;
+		goto err_rest_retr;
+	}
+
+	/* prepare message */
+	memset(&msg, 0, sizeof(struct msghdr));
+	msg.msg_name = &ftp_server->ftp_saddr;
+	msg.msg_namelen = sizeof(ftp_server->ftp_saddr);
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+
+	/* get data and send it to FTP server */
+	for (off = 0; count > 0;) {
+		/* set buffer */
+		iov.iov_base = ftp_server->ftp_buf;
+		iov.iov_len = count <= PAGE_SIZE ? count : PAGE_SIZE;
+
+		/* copy user data to FTP buffer */
+		if (copy_from_user(ftp_server->ftp_buf, buf + off, iov.iov_len))
+			break;
+
+		/* send data */
+		n = ftp_sendmsg(sock_data, &msg, &iov);
+		if (n <= 0)
+			break;
+
+		/* update position */
+		off += n;
+		*pos += n;
+		count -= n;
+	}
+
+	/* close data socket */
+	sock_data->ops->release(sock_data);
+
+	/* get FTP reply and disconnect on error */
+	if (n < 0 || ftp_getreply(ftp_server) == FTP_STATUS_KO)
+		ftp_disconnect(ftp_server);
+
+	/* unlock server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	/* return number of bytes written */
+	return off;
+err_rest_retr:
+	sock_data->ops->release(sock_data);
+err_sock_data:
+	ftp_disconnect(ftp_server);
+err_connect:
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ret;
+}
+
+/*
+ * Create a file on a FTP server.
+ */
+int ftp_create(struct ftp_server *ftp_server, const char *file_path)
+{
+	struct socket *sock_data;
+	int ret;
+
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		goto err_connect;
+
+	/* open a data socket */
+	sock_data = ftp_open_data_socket(ftp_server);
+	if (IS_ERR(sock_data)) {
+		ret = PTR_ERR(sock_data);
+		goto err1;
+	}
+
+	/* send STOR command */
+	if (ftp_cmd(ftp_server, "STOR", file_path) != FTP_STATUS_OK_INIT) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	/* close data socket */
+	sock_data->ops->release(sock_data);
+
+	/* get FTP reply and disconnect on error */
+	if (ftp_getreply(ftp_server) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err1;
+	}
+
+	/* unlock server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	return 0;
+err:
+	sock_data->ops->release(sock_data);
+err1:
+	ftp_disconnect(ftp_server);
+err_connect:
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ret;
+}
+
+/*
+ * Remove a file on a FTP server.
+ */
+int ftp_rm(struct ftp_server *ftp_server, const char *file_path)
+{
+	int ret;
+
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		goto err_connect;
+
+	/* send delete command */
+	if (ftp_cmd(ftp_server, "DELE", file_path) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	/* unlock server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	return 0;
+err:
 	ftp_disconnect(ftp_server);
 err_connect:
 	mutex_unlock(&ftp_server->ftp_mutex);

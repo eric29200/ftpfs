@@ -7,18 +7,7 @@
 ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
 	struct inode *inode = file_inode(file);
-	int ret;
-
-	/* lock inode */
-	inode_lock_shared(inode);
-
-	/* read from FTP server */
-	ret = ftp_read(ftpfs_sb(file->f_inode->i_sb)->s_ftp_server, ftpfs_i(file->f_inode)->i_path, buf, count, pos);
-
-	/* unlock inode */
-	inode_unlock_shared(inode);
-
-	return ret;
+	return ftp_read(ftpfs_sb(inode->i_sb)->s_ftp_server, ftpfs_i(inode)->i_path, buf, count, pos);
 }
 
 /*

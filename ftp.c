@@ -876,3 +876,105 @@ err_connect:
 	mutex_unlock(&ftp_server->ftp_mutex);
 	return ret;
 }
+
+/*
+ * Create a directory on a FTP server.
+ */
+int ftp_mkdir(struct ftp_server *ftp_server, const char *file_path)
+{
+	int ret;
+
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		goto err_connect;
+
+	/* send mkdir command */
+	if (ftp_cmd(ftp_server, "MKD", file_path) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	/* unlock server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	return 0;
+err:
+	ftp_disconnect(ftp_server);
+err_connect:
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ret;
+}
+
+/*
+ * Remove a directory on a FTP server.
+ */
+int ftp_rmdir(struct ftp_server *ftp_server, const char *file_path)
+{
+	int ret;
+
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		goto err_connect;
+
+	/* send rmdir command */
+	if (ftp_cmd(ftp_server, "RMD", file_path) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	/* unlock server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	return 0;
+err:
+	ftp_disconnect(ftp_server);
+err_connect:
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ret;
+}
+
+/*
+ * Rename a file.
+ */
+int ftp_rename(struct ftp_server *ftp_server, const char *old_pathname, const char *new_pathname)
+{
+	int ret;
+
+	/* lock server */
+	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* connect to server */
+	ret = ftp_connect(ftp_server);
+	if (ret)
+		goto err_connect;
+
+	/* send "rename from" command */
+	if (ftp_cmd(ftp_server, "RNFR", old_pathname) != FTP_STATUS_OK_SO_FAR) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	/* send "rename to" command */
+	if (ftp_cmd(ftp_server, "RNTO", new_pathname) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	/* unlock server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	return 0;
+err:
+	ftp_disconnect(ftp_server);
+err_connect:
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return ret;
+}

@@ -49,13 +49,9 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	if (!inode)
 		goto err;
 
-	/* build full path */
-	ftpfs_i(inode)->i_path = ftpfs_build_full_path(dir, fattr);
-	if (!ftpfs_i(inode)->i_path)
-		goto err;
-
 	/* init inode */
 	inode->i_ino = get_next_ino();
+	ftpfs_i(inode)->i_path = NULL;
 	ftpfs_i(inode)->i_mapping_expires = 0;
 
 	/* refresh inode */
@@ -71,8 +67,16 @@ err:
 /*
  * Refresh an inode.
  */
-void ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr *fattr)
+int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr *fattr)
 {
+	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
+
+	/* build full path */
+	kfree(ftpfs_inode->i_path);
+	ftpfs_inode->i_path = ftpfs_build_full_path(dir, fattr);
+	if (!ftpfs_inode->i_path)
+		return -ENOMEM;
+
 	/* set uid, gid, mode, nlinks and size */
 	inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
 	set_nlink(inode, fattr->f_nlinks);
@@ -95,4 +99,6 @@ void ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fatt
 		inode->i_op = &ftpfs_file_iops;
 		inode->i_fop = &ftpfs_file_fops;
 	}
+
+	return 0;
 }

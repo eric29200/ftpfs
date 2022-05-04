@@ -235,10 +235,151 @@ out:
 }
 
 /*
+ * Create a new directory.
+ */
+static int ftpfs_mkdir(struct user_namespace *mnt_userns, struct inode *dir,
+		       struct dentry *dentry, umode_t mode)
+{
+	struct ftp_fattr fattr;
+	struct inode *inode;
+	int name_len, ret;
+	char *file_path;
+
+	/* get name length */
+	name_len = dentry->d_name.len;
+	if (name_len > FTP_MAX_NAMELEN)
+		name_len = FTP_MAX_NAMELEN;
+
+	/* build full path */
+	memset(&fattr, 0, sizeof(struct ftp_fattr));
+	memcpy(fattr.f_name, dentry->d_name.name, name_len);
+	file_path = ftpfs_build_full_path(dir, &fattr);
+	if (!file_path)
+		return -ENOMEM;
+
+	/* create directory on FTP server */
+	ret = ftp_mkdir(ftpfs_sb(dir->i_sb)->s_ftp_server, file_path);
+	if (ret)
+		goto out;
+
+	/* find newly created entry (reset directory mapping, to lookup on FTP server) */
+	ftpfs_i(dir)->i_mapping_expires = jiffies;
+	ret = ftpfs_find_entry(dir, dentry, &fattr);
+	if (ret)
+		goto out;
+
+	/* get inode */
+	inode = ftpfs_iget(dir->i_sb, dir, &fattr);
+	if (IS_ERR(inode)) {
+		ret = PTR_ERR(inode);
+		goto out;
+	}
+
+	/* register dentry <-> inode */
+	d_instantiate(dentry, inode);
+out:
+	kfree(file_path);
+	return ret;
+}
+
+/*
+ * Remove a directory.
+ */
+static int ftpfs_rmdir(struct inode *dir, struct dentry *dentry)
+{
+	struct ftp_fattr fattr;
+	int name_len, ret;
+	char *file_path;
+
+	/* get name length */
+	name_len = dentry->d_name.len;
+	if (name_len > FTP_MAX_NAMELEN)
+		name_len = FTP_MAX_NAMELEN;
+
+	/* build full path */
+	memset(fattr.f_name, 0, FTP_MAX_NAMELEN);
+	memcpy(fattr.f_name, dentry->d_name.name, name_len);
+	file_path = ftpfs_build_full_path(dir, &fattr);
+	if (!file_path)
+		return -ENOMEM;
+
+	/* ask FTP to delete directory */
+	ret = ftp_rmdir(ftpfs_sb(dir->i_sb)->s_ftp_server, file_path);
+	if (ret)
+		goto out;
+
+	/* reset directory buffer page cache */
+	ftpfs_i(dir)->i_mapping_expires = jiffies;
+out:
+	kfree(file_path);
+	return ret;
+}
+
+/*
+ * Rename a file.
+ */
+static int ftpfs_rename(struct user_namespace *mnt_userns, struct inode *old_dir, struct dentry *old_dentry,
+			struct inode *new_dir, struct dentry *new_dentry, unsigned int flags)
+{
+	char *old_file_path = NULL, *new_file_path = NULL;
+	int ret, old_name_len, new_name_len;
+	struct ftp_fattr fattr;
+
+	if (flags & ~RENAME_NOREPLACE)
+		return -EINVAL;
+
+	/* get old name length */
+	old_name_len = old_dentry->d_name.len;
+	if (old_name_len > FTP_MAX_NAMELEN)
+		old_name_len = FTP_MAX_NAMELEN;
+
+	/* build full path */
+	memset(fattr.f_name, 0, FTP_MAX_NAMELEN);
+	memcpy(fattr.f_name, old_dentry->d_name.name, old_name_len);
+	old_file_path = ftpfs_build_full_path(old_dir, &fattr);
+	if (!old_file_path) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	/* get new name length */
+	new_name_len = new_dentry->d_name.len;
+	if (new_name_len > FTP_MAX_NAMELEN)
+		new_name_len = FTP_MAX_NAMELEN;
+
+	/* build full path */
+	memset(fattr.f_name, 0, FTP_MAX_NAMELEN);
+	memcpy(fattr.f_name, new_dentry->d_name.name, new_name_len);
+	new_file_path = ftpfs_build_full_path(new_dir, &fattr);
+	if (!new_file_path) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	/* ask FTP server to rename file */
+	ret = ftp_rename(ftpfs_sb(old_dir->i_sb)->s_ftp_server, old_file_path, new_file_path);
+	if (ret)
+		goto out;
+
+	/* reset old and new directories buffer page cache */
+	ftpfs_i(old_dir)->i_mapping_expires = jiffies;
+	ftpfs_i(new_dir)->i_mapping_expires = jiffies;
+
+	ret = 0;
+out:
+	kfree(old_file_path);
+	kfree(new_file_path);
+	return ret;
+}
+
+/*
  * FTPFS directory inode operations.
  */
 const struct inode_operations ftpfs_dir_iops = {
 	.lookup			= ftpfs_lookup,
 	.create			= ftpfs_create,
 	.unlink			= ftpfs_unlink,
+	.mkdir			= ftpfs_mkdir,
+	.rmdir			= ftpfs_rmdir,
+	.rename			= ftpfs_rename,
 };

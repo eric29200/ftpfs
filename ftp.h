@@ -65,5 +65,8 @@ int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *
 int ftp_write(struct ftp_server *ftp_server, const char *file_path, const char __user *buf, size_t count, loff_t *pos);
 int ftp_create(struct ftp_server *ftp_server, const char *file_path);
 int ftp_rm(struct ftp_server *ftp_server, const char *file_path);
+int ftp_mkdir(struct ftp_server *ftp_server, const char *file_path);
+int ftp_rmdir(struct ftp_server *ftp_server, const char *file_path);
+int ftp_rename(struct ftp_server *ftp_server, const char *old_pathname, const char *new_pathname);
 
 #endif

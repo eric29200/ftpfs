@@ -152,6 +152,7 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		goto err_ftp_connect;
 
 	/* set super block */
+	sb->s_flags |= SB_RDONLY | SB_NOATIME;
 	sb->s_op = &ftpfs_sops;
 	sb->s_d_op = &ftpfs_dops;
 	sbi->s_opt = ftpfs_ctx(fc)->fs_opt;

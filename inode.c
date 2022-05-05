@@ -4,7 +4,7 @@
 /*
  * Build full path of a file (concat directory path and file name).
  */
-char *ftpfs_build_full_path(struct inode *dir, struct ftp_fattr *fattr)
+static char *ftpfs_build_full_path(struct inode *dir, struct ftp_fattr *fattr)
 {
 	size_t name_len, dir_path_len;
 	char *path;

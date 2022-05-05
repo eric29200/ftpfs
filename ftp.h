@@ -20,16 +20,25 @@
 #define FTP_MAX_NAMELEN				256
 
 /*
+ * FTP session.
+ */
+struct ftp_session {
+	struct ftp_server	*server;				/* ftp server */
+	struct socket		*cmd_sock;				/* command socket */
+	struct socket		*data_sock;				/* data socket */
+	struct sockaddr_in	saddr;					/* FTP server address */
+	char			*buf;					/* session buffer (used to receive/send messages) */
+	struct mutex		mutex;					/* session mutex */
+};
+
+/*
  * FTP server.
  */
 struct ftp_server {
 	char			ftp_sname[FTP_SERVER_MAX_LEN];		/* FTP server name */
 	char			ftp_user[FTP_USER_MAX_LEN];		/* FTP user */
 	char			ftp_passwd[FTP_PASSWD_MAX_LEN];		/* FTP password */
-	struct socket		*ftp_sock;				/* connected socket */
-	struct sockaddr_in	ftp_saddr;				/* FTP server address */
-	char			*ftp_buf;				/* FTP server buffer (used to receive/send messages) */
-	struct mutex		ftp_mutex;				/* FTP server mutex */
+	struct ftp_session	*ftp_main_session;			/* FTP main session */
 };
 
 /*
@@ -54,13 +63,28 @@ struct ftp_fattr {
 	char			f_link[FTP_MAX_NAMELEN];		/* target link */
 };
 
+/* FTP utils prototypes (defined in ftp_utils.c) */
+int ftp_sendmsg(struct socket *sock, struct msghdr *msg, struct kvec *iov);
+int ftp_recvmsg(struct socket *sock, struct msghdr *msg, struct kvec *iov);
+int ftp_getline(struct ftp_session *session, struct socket *sock);
+int ftp_getreply(struct ftp_session *session);
+int ftp_cmd(struct ftp_session *session, const char *cmd, const char *arg);
+
+/* FTP session prototypes (defined in ftp_session.c) */
 struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user, const char *ftp_passwd);
 void ftp_server_free(struct ftp_server *ftp_server);
-int ftp_connect(struct ftp_server *ftp_server);
-struct socket *ftp_list_start(struct ftp_server *ftp_server, const char *dir);
-void ftp_list_end(struct ftp_server *ftp_server, struct socket *sock_data);
-void ftp_list_failed(struct ftp_server *ftp_server, struct socket *sock_data);
-int ftp_list_next(struct ftp_server *ftp_server, struct socket *sock_data, struct ftp_fattr *fattr_res);
-int ftp_read(struct ftp_server *ftp_server, const char *file_path, char __user *buf, size_t count, loff_t *pos);
+int ftp_session_open(struct ftp_session *session);
+void ftp_session_close(struct ftp_session *session);
+void ftp_session_free(struct ftp_session *session);
+int ftp_open_data_socket(struct ftp_session *session);
+struct ftp_session *ftp_session_get_and_lock(struct ftp_server *ftp_server, int main_session);
+void ftp_session_unlock(struct ftp_session *session);
+
+/* FTP command prototypes (defined in ftp_cmd.c) */
+int ftp_list_start(struct ftp_session *session, const char *dir);
+void ftp_list_end(struct ftp_session *session);
+void ftp_list_failed(struct ftp_session *session);
+int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res);
+int ftp_read(struct ftp_session *session, const char *file_path, char __user *buf, size_t count, loff_t *pos);
 
 #endif

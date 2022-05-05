@@ -146,11 +146,6 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		goto err_ftp_server_create;
 	}
 
-	/* connect to FTP server */
-	ret = ftp_connect(sbi->s_ftp_server);
-	if (ret)
-		goto err_ftp_connect;
-
 	/* set super block */
 	sb->s_flags |= SB_RDONLY | SB_NOATIME;
 	sb->s_op = &ftpfs_sops;
@@ -176,10 +171,6 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	return 0;
 err_no_root:
 	pr_err("FTPFS : can't get root inode\n");
-	goto err_free_ftp_server;
-err_ftp_connect:
-	pr_err("FTPFS : can't connect to FTP server \"%s\"\n", fc->source);
-err_free_ftp_server:
 	ftp_server_free(sbi->s_ftp_server);
 	goto err;
 err_ftp_server_create:

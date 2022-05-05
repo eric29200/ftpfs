@@ -14,9 +14,8 @@ static inline struct page *ftpfs_pagecache_create_page(struct inode *inode, pgof
 /*
  * Populate a directory cached page (return number of entries or error code).
  */
-static int ftpfs_dir_populate_page(struct inode *inode, pgoff_t pg_idx, struct socket *sock_data)
+static int ftpfs_dir_populate_page(struct inode *inode, pgoff_t pg_idx, struct ftp_session *session)
 {
-	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
 	struct ftp_fattr *fattrs;
 	struct page *page;
 	int ret = 0, i;
@@ -33,7 +32,7 @@ static int ftpfs_dir_populate_page(struct inode *inode, pgoff_t pg_idx, struct s
 	/* copy directory entries to cache */
 	for (i = 0; i < FTPFS_DIR_ENTRIES_PER_PAGE; i++) {
 		/* copy next dir entry */
-		ret = ftp_list_next(sbi->s_ftp_server, sock_data, &fattrs[i]);
+		ret = ftp_list_next(session, &fattrs[i]);
 		if (ret < 0)
 			goto err;
 
@@ -64,19 +63,24 @@ static int ftpfs_dir_load_into_page_cache(struct inode *inode)
 {
 	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
 	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
-	struct socket *sock_data;
+	struct ftp_session *session;
 	pgoff_t pg_idx;
 	int ret;
 
+	/* get main session */
+	session = ftp_session_get_and_lock(sbi->s_ftp_server, 1);
+	if (!session)
+		return -EIO;
+
 	/* start directory listing */
-	sock_data = ftp_list_start(sbi->s_ftp_server, ftpfs_inode->i_path);
-	if (IS_ERR(sock_data))
-		return PTR_ERR(sock_data);
+	ret = ftp_list_start(session, ftpfs_inode->i_path);
+	if (ret)
+		goto err;
 
 	/* for each directory entry */
 	for (pg_idx = 0;; pg_idx++) {
 		/* populate page */
-		ret = ftpfs_dir_populate_page(inode, pg_idx, sock_data);
+		ret = ftpfs_dir_populate_page(inode, pg_idx, session);
 		if (ret < 0)
 			goto err;
 
@@ -86,11 +90,13 @@ static int ftpfs_dir_load_into_page_cache(struct inode *inode)
 	}
 
 	/* end directory listing */
-	ftp_list_end(sbi->s_ftp_server, sock_data);
+	ftp_list_end(session);
+	ftp_session_unlock(session);
 
 	return 0;
 err:
-	ftp_list_failed(sbi->s_ftp_server, sock_data);
+	ftp_list_failed(session);
+	ftp_session_unlock(session);
 	return ret;
 }
 
@@ -194,19 +200,24 @@ static int ftpfs_readdir_from_ftp(struct file *file, struct dir_context *ctx)
 {
 	struct ftpfs_inode_info *ftpfs_dir = ftpfs_i(file->f_inode);
 	struct ftpfs_sb_info *sbi = ftpfs_sb(file->f_inode->i_sb);
-	struct socket *sock_data;
+	struct ftp_session *session;
 	struct ftp_fattr fattr;
 	int ret, i, name_len;
 
+	/* get main session */
+	session = ftp_session_get_and_lock(sbi->s_ftp_server, 1);
+	if (!session)
+		return -EIO;
+
 	/* start directory listing */
-	sock_data = ftp_list_start(sbi->s_ftp_server, ftpfs_dir->i_path);
-	if (IS_ERR(sock_data))
-		return PTR_ERR(sock_data);
+	ret = ftp_list_start(session, ftpfs_dir->i_path);
+	if (ret)
+		goto err;
 
 	/* for each directory entry */
 	for (i = 0;; i++) {
 		/* get next directory entry */
-		ret = ftp_list_next(sbi->s_ftp_server, sock_data, &fattr);
+		ret = ftp_list_next(session, &fattr);
 		if (ret < 0)
 			goto err;
 
@@ -227,10 +238,12 @@ static int ftpfs_readdir_from_ftp(struct file *file, struct dir_context *ctx)
 		ctx->pos++;
 	}
 
-	ftp_list_end(sbi->s_ftp_server, sock_data);
+	ftp_list_end(session);
+	ftp_session_unlock(session);
 	return 0;
 err:
-	ftp_list_failed(sbi->s_ftp_server, sock_data);
+	ftp_list_failed(session);
+	ftp_session_unlock(session);
 	return ret;
 }
 
@@ -257,4 +270,3 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 const struct file_operations ftpfs_dir_fops = {
 	.iterate_shared		= ftpfs_readdir,
 };
-

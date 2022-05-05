@@ -7,8 +7,19 @@
 ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
 	struct inode *inode = file_inode(file);
+	struct ftp_session *session;
+	ssize_t ret;
 
-	return ftp_read(ftpfs_sb(inode->i_sb)->s_ftp_server, ftpfs_i(inode)->i_path, buf, count, pos);
+	/* get main session */
+	session = ftp_session_get_and_lock(ftpfs_sb(inode->i_sb)->s_ftp_server, 1);
+	if (!session)
+		return -EIO;
+
+	/* read from FTP session */
+	ret = ftp_read(session, ftpfs_i(inode)->i_path, buf, count, pos);
+
+	ftp_session_unlock(session);
+	return ret;
 }
 
 /*

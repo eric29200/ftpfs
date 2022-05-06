@@ -35,14 +35,6 @@ static int ftp_resolve_host(struct ftp_server *ftp_server, struct sockaddr_in *s
 }
 
 /*
- * Check if a session is opened.
- */
-static inline bool ftp_session_is_opened(struct ftp_session *session)
-{
-	return session && session->cmd_sock && session->cmd_sock->ops;
-}
-
-/*
  * Create a FTP session.
  */
 static struct ftp_session *ftp_session_create(struct ftp_server *ftp_server)
@@ -133,6 +125,7 @@ int ftp_session_open(struct ftp_session *session)
 	if (ftp_cmd(session, "TYPE", "I") != FTP_STATUS_OK)
 		goto err;
 
+	session->data_pos = 0;
 	return 0;
 err:
 	ftp_session_close(session);
@@ -152,15 +145,18 @@ void ftp_session_close(struct ftp_session *session)
 
 	session->data_sock = NULL;
 	session->cmd_sock = NULL;
+	session->data_pos = 0;
 }
 
 /*
  * Create a FTP server.
  */
-struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user, const char *ftp_passwd)
+struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user,
+				     const char *ftp_passwd, unsigned long nb_connections)
 {
 	struct ftp_server *ftp_server;
-	int ret;
+	struct ftp_session *session;
+	int ret, i;
 
 	/* check parameters */
 	if (!ftp_sname || !ftp_user || !ftp_passwd)
@@ -188,6 +184,21 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 	if (ret)
 		goto err;
 
+	/* create user sessions */
+	mutex_init(&ftp_server->ftp_mutex);
+	INIT_LIST_HEAD(&ftp_server->ftp_sessions);
+	for (i = 0; i < nb_connections - 1; i++) {
+		/* create session */
+		session = ftp_session_create(ftp_server);
+		if (!session) {
+			ret = -ENOMEM;
+			goto err;
+		}
+
+		/* add session */
+		list_add_tail(&session->list, &ftp_server->ftp_sessions);
+	}
+
 	return ftp_server;
 err:
 	ftp_server_free(ftp_server);
@@ -195,19 +206,35 @@ err:
 }
 
 /*
- * Get a free FTP session and lock it (if main_session = 1, use FTP server main session).
+ * Get main FTP session and lock it.
  */
-struct ftp_session *ftp_session_get_and_lock(struct ftp_server *ftp_server, int main_session)
+struct ftp_session *ftp_session_get_and_lock_main(struct ftp_server *ftp_server)
+{
+	mutex_lock(&ftp_server->ftp_main_session->mutex);
+	return ftp_server->ftp_main_session;
+}
+
+/*
+ * Try to get a user FTP session and lock it.
+ */
+struct ftp_session *ftp_session_get_and_lock_user(struct ftp_server *ftp_server)
 {
 	struct ftp_session *session;
+	struct list_head *pos;
 
-	if (main_session)
-		session = ftp_server->ftp_main_session;
-	else
-		return NULL;
+	mutex_lock(&ftp_server->ftp_mutex);
 
-	/* lock session */
-	mutex_lock(&session->mutex);
+	list_for_each(pos, &ftp_server->ftp_sessions) {
+		session = list_entry(pos, struct ftp_session, list);
+
+		if (mutex_trylock(&session->mutex))
+			goto found;
+	}
+
+	mutex_unlock(&ftp_server->ftp_mutex);
+	return NULL;
+found:
+	mutex_unlock(&ftp_server->ftp_mutex);
 	return session;
 }
 
@@ -224,8 +251,16 @@ void ftp_session_unlock(struct ftp_session *session)
  */
 void ftp_server_free(struct ftp_server *ftp_server)
 {
+	struct ftp_session *session;
+	struct list_head *pos, *n;
+
 	if (ftp_server && ftp_server->ftp_main_session)
 		ftp_session_free(ftp_server->ftp_main_session);
+
+	list_for_each_safe(pos, n, &ftp_server->ftp_sessions) {
+		session = list_entry(pos, struct ftp_session, list);
+		ftp_session_free(session);
+	}
 
 	kfree(ftp_server);
 }

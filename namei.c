@@ -85,7 +85,7 @@ static int ftpfs_find_entry_from_ftp(struct inode *dir, struct dentry *dentry, s
 	int ret, name_len;
 
 	/* get main session */
-	session = ftp_session_get_and_lock(sbi->s_ftp_server, 1);
+	session = ftp_session_get_and_lock_main(sbi->s_ftp_server);
 	if (!session)
 		return -EIO;
 

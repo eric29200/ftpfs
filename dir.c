@@ -68,7 +68,7 @@ static int ftpfs_dir_load_into_page_cache(struct inode *inode)
 	int ret;
 
 	/* get main session */
-	session = ftp_session_get_and_lock(sbi->s_ftp_server, 1);
+	session = ftp_session_get_and_lock_main(sbi->s_ftp_server);
 	if (!session)
 		return -EIO;
 
@@ -205,7 +205,7 @@ static int ftpfs_readdir_from_ftp(struct file *file, struct dir_context *ctx)
 	int ret, i, name_len;
 
 	/* get main session */
-	session = ftp_session_get_and_lock(sbi->s_ftp_server, 1);
+	session = ftp_session_get_and_lock_main(sbi->s_ftp_server);
 	if (!session)
 		return -EIO;
 

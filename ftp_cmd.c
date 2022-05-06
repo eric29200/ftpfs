@@ -239,15 +239,20 @@ int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res)
 }
 
 /*
- * Read data from a FTP server.
+ * Start a FTP read command.
  */
-int ftp_read(struct ftp_session *session, const char *file_path, char __user *buf, size_t count, loff_t *pos)
+int ftp_read_start(struct ftp_session *session, const char *file_path, loff_t pos)
 {
-	struct msghdr msg;
-	struct kvec iov;
 	char nb_buf[64];
-	loff_t off;
-	int n, ret;
+	int ret;
+
+	/* session is opened at correct data offset : just return */
+	if (ftp_session_is_opened(session) && session->data_sock && pos == session->data_pos)
+		return 0;
+
+	/* a data socket is opened at wrong offset : close session */
+	if (session->data_sock && pos != session->data_pos)
+		ftp_session_close(session);
 
 	/* open session */
 	ret = ftp_session_open(session);
@@ -260,8 +265,8 @@ int ftp_read(struct ftp_session *session, const char *file_path, char __user *bu
 		goto err;
 
 	/* send restore command */
-	if (*pos) {
-		snprintf(nb_buf, 64, "%lld", *pos);
+	if (pos) {
+		snprintf(nb_buf, 64, "%lld", pos);
 		if (ftp_cmd(session, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
 			ret = -ENOSPC;
 			goto err;
@@ -273,6 +278,46 @@ int ftp_read(struct ftp_session *session, const char *file_path, char __user *bu
 		ret = -ENOSPC;
 		goto err;
 	}
+
+	session->data_pos = 0;
+	return 0;
+err:
+	ftp_session_close(session);
+	return ret;
+}
+
+/*
+ * End with success a read command.
+ */
+void ftp_read_end(struct ftp_session *session)
+{
+	/* close data socket */
+	session->data_sock->ops->release(session->data_sock);
+	session->data_sock = NULL;
+
+	/* get FTP reply and disconnect on error */
+	if (ftp_getreply(session) == FTP_STATUS_KO)
+		ftp_session_close(session);
+}
+
+/*
+ * End with failure a read command.
+ */
+void ftp_read_failed(struct ftp_session *session)
+{
+	/* close session */
+	ftp_session_close(session);
+}
+
+/*
+ * Read next buffer.
+ */
+int ftp_read_next(struct ftp_session *session, char __user *buf, size_t count)
+{
+	struct msghdr msg;
+	struct kvec iov;
+	loff_t off;
+	int ret, n;
 
 	/* prepare message */
 	memset(&msg, 0, sizeof(struct msghdr));
@@ -287,7 +332,9 @@ int ftp_read(struct ftp_session *session, const char *file_path, char __user *bu
 
 		/* get next buffer */
 		n = ftp_recvmsg(session->data_sock, &msg, &iov);
-		if (n <= 0)
+		if (n < 0)
+			goto err;
+		if (n == 0)
 			break;
 
 		/* copy to output buffer */
@@ -295,17 +342,10 @@ int ftp_read(struct ftp_session *session, const char *file_path, char __user *bu
 			break;
 
 		/* update position */
+		session->data_pos += n;
 		off += n;
-		*pos += n;
 		count -= n;
 	}
-
-	/* close data socket */
-	session->data_sock->ops->release(session->data_sock);
-
-	/* get FTP reply and disconnect on error */
-	if (n < 0 || ftp_getreply(session) == FTP_STATUS_KO)
-		ftp_session_close(session);
 
 	/* return number of bytes read */
 	return off;

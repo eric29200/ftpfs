@@ -12,6 +12,7 @@
 #define FTPFS_FTP_PASSWD_DEFAULT		"anonymous"
 #define FTPFS_DIR_REVALID_MSEC			5000
 #define FTPFS_DIR_ENTRIES_PER_PAGE		(PAGE_SIZE / sizeof(struct ftp_fattr))
+#define FTPFS_NB_CONNECTIONS			2
 
 /*
  * FTPFS mount options.
@@ -20,6 +21,7 @@ struct ftpfs_mount_opts {
 	char				*user;			/* FTP user */
 	char				*passwd;		/* FTP passwd */
 	unsigned long			dir_revalid_msec;	/* frequency to revalidate directories */
+	unsigned long			nb_connections;		/* number of connections/session */
 };
 
 /*

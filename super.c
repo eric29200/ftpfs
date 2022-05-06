@@ -140,7 +140,8 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 		return -ENOMEM;
 
 	/* create FTP server */
-	sbi->s_ftp_server = ftp_server_create(fc->source, ctx->fs_opt.user, ctx->fs_opt.passwd);
+	sbi->s_ftp_server = ftp_server_create(fc->source, ctx->fs_opt.user, ctx->fs_opt.passwd,
+					      ctx->fs_opt.nb_connections);
 	if (IS_ERR(sbi->s_ftp_server)) {
 		ret = PTR_ERR(sbi->s_ftp_server);
 		goto err_ftp_server_create;
@@ -188,6 +189,7 @@ enum {
 	Opt_user,
 	Opt_passwd,
 	Opt_dir_revalid_sec,
+	Opt_nb_connections,
 };
 
 /*
@@ -197,6 +199,7 @@ static struct fs_parameter_spec ftpfs_fs_parameters[] = {
 	fsparam_string("username",		Opt_user),
 	fsparam_string("password",		Opt_passwd),
 	fsparam_u32("dir_revalid_sec",		Opt_dir_revalid_sec),
+	fsparam_u32("nb_connections",		Opt_nb_connections),
 	{},
 };
 
@@ -230,6 +233,9 @@ static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *para
 		break;
 	case Opt_dir_revalid_sec:
 		ctx->fs_opt.dir_revalid_msec = res.uint_32 * 1000;
+		break;
+	case Opt_nb_connections:
+		ctx->fs_opt.nb_connections = res.uint_32;
 		break;
 	default:
 		return -ENOPARAM;
@@ -281,6 +287,7 @@ int ftpfs_init_fs_context(struct fs_context *fc)
 	ctx->fs_opt.user = FTPFS_FTP_USER_DEFAULT;
 	ctx->fs_opt.passwd = FTPFS_FTP_PASSWD_DEFAULT;
 	ctx->fs_opt.dir_revalid_msec = FTPFS_DIR_REVALID_MSEC;
+	ctx->fs_opt.nb_connections = FTPFS_NB_CONNECTIONS;
 
 	/* set context */
 	fc->fs_private = ctx;

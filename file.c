@@ -9,12 +9,12 @@ static int ftpfs_file_open(struct inode *inode, struct file *file)
 	struct ftp_session *session;
 	int ret;
 
-	/* get and lock a free user session */
+	/* get and lock a user session */
 	session = ftp_session_get_and_lock_user(ftpfs_sb(inode->i_sb)->s_ftp_server);
 	if (!session)
 		return 0;
 
-	/* try to open it. if it fails unlock session */
+	/* try to open it and attach it to the file */
 	ret = ftp_session_open(session);
 	if (ret == 0)
 		file->private_data = session;
@@ -31,6 +31,7 @@ static int ftpfs_file_release(struct inode *inode, struct file *file)
 {
 	struct ftp_session *session;
 
+	/* close file session */
 	if (file->private_data != NULL) {
 		session = file->private_data;
 		ftp_session_close(session);
@@ -62,24 +63,31 @@ static ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count
 	/* start FTP read */
 	ret = ftp_read_start(session, ftpfs_i(inode)->i_path, *pos);
 	if (ret)
-		goto out;
+		goto err;
 
 	/* read next buffer */
 	ret = ftp_read_next(session, buf, count);
-	if (ret < 0) {
-		ftp_read_failed(session);
-		goto out;
-	}
+	if (ret < 0)
+		goto err;
 
 	/* update file position */
 	*pos += ret;
 
-	/* if main session is used, end ftp read */
-	if (!file->private_data)
-		ftp_read_end(session);
-out:
+	/* if main session is used, end ftp read and unlock session */
+	if (!file->private_data) {
+		ftp_read_end(session, 0);
+		ftp_session_unlock(session);
+	}
+
+	return ret;
+err:
+	/* end read with failure */
+	ftp_read_end(session, ret);
+
+	/* if main session is used, unlock session */
 	if (!file->private_data)
 		ftp_session_unlock(session);
+
 	return ret;
 }
 

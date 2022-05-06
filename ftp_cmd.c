@@ -165,9 +165,18 @@ err:
 /*
  * Start a directory listing.
  */
-int ftp_list_start(struct ftp_session *session, const char *dir)
+int ftp_list_start(struct ftp_session *session, const char *dir, loff_t pos)
 {
-	int ret;
+	struct ftp_fattr fattr;
+	int ret, i;
+
+	/* session is opened at correct data offset : just return */
+	if (ftp_session_is_opened(session) && session->data_sock && pos == session->data_pos)
+		return 0;
+
+	/* a data socket is opened at wrong offset : close session */
+	if (session->data_sock && pos != session->data_pos)
+		ftp_session_close(session);
 
 	/* open session */
 	ret = ftp_session_open(session);
@@ -185,6 +194,14 @@ int ftp_list_start(struct ftp_session *session, const char *dir)
 		goto err;
 	}
 
+	/* skip first entries */
+	for (i = 0; i < pos; i++) {
+		ret = ftp_list_next(session, &fattr);
+		if (ret < 0)
+			goto err;
+	}
+
+	session->data_pos = pos;
 	return 0;
 err:
 	ftp_session_close(session);
@@ -192,26 +209,25 @@ err:
 }
 
 /*
- * End a directory listing (= close data socket, get server reply and unlock session).
+ * End a directory listing.
  */
-void ftp_list_end(struct ftp_session *session)
+void ftp_list_end(struct ftp_session *session, int err)
 {
-	/* close data socket */
-	session->data_sock->ops->release(session->data_sock);
-	session->data_sock = NULL;
-
-	/* get FTP reply and disconnect on error */
-	if (ftp_getreply(session) != FTP_STATUS_OK)
+	/* on error, close FTP session */
+	if (err) {
 		ftp_session_close(session);
-}
+		return;
+	}
 
-/*
- * End a directory listing with failure (= close session).
- */
-void ftp_list_failed(struct ftp_session *session)
-{
-	/* close session */
-	ftp_session_close(session);
+	/* close data socket */
+	if (ftp_session_is_data_opened(session)) {
+		session->data_sock->ops->release(session->data_sock);
+		session->data_sock = NULL;
+
+		/* get FTP reply and disconnect on error */
+		if (ftp_getreply(session) != FTP_STATUS_OK)
+			ftp_session_close(session);
+	}
 }
 
 /*
@@ -231,8 +247,10 @@ int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res)
 			break;
 
 		/* parse directory entry (on error, goto next entry) */
-		if (ftp_parse_dir_entry(session->buf, n, fattr_res) == 0)
+		if (ftp_parse_dir_entry(session->buf, n, fattr_res) == 0) {
+			session->data_pos++;
 			break;
+		}
 	}
 
 	return n;
@@ -247,11 +265,11 @@ int ftp_read_start(struct ftp_session *session, const char *file_path, loff_t po
 	int ret;
 
 	/* session is opened at correct data offset : just return */
-	if (ftp_session_is_opened(session) && session->data_sock && pos == session->data_pos)
+	if (ftp_session_is_data_opened(session) && pos == session->data_pos)
 		return 0;
 
 	/* a data socket is opened at wrong offset : close session */
-	if (session->data_sock && pos != session->data_pos)
+	if (ftp_session_is_data_opened(session) && pos != session->data_pos)
 		ftp_session_close(session);
 
 	/* open session */
@@ -287,26 +305,25 @@ err:
 }
 
 /*
- * End with success a read command.
+ * End a read command.
  */
-void ftp_read_end(struct ftp_session *session)
+void ftp_read_end(struct ftp_session *session, int err)
 {
-	/* close data socket */
-	session->data_sock->ops->release(session->data_sock);
-	session->data_sock = NULL;
-
-	/* get FTP reply and disconnect on error */
-	if (ftp_getreply(session) == FTP_STATUS_KO)
+	/* on error, close FTP session */
+	if (err) {
 		ftp_session_close(session);
-}
+		return;
+	}
 
-/*
- * End with failure a read command.
- */
-void ftp_read_failed(struct ftp_session *session)
-{
-	/* close session */
-	ftp_session_close(session);
+	/* close data socket */
+	if (ftp_session_is_data_opened(session)) {
+		session->data_sock->ops->release(session->data_sock);
+		session->data_sock = NULL;
+
+		/* get FTP reply and disconnect on error */
+		if (ftp_getreply(session) == FTP_STATUS_KO)
+			ftp_session_close(session);
+	}
 }
 
 /*

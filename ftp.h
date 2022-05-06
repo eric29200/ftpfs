@@ -87,13 +87,11 @@ struct ftp_session *ftp_session_get_and_lock_user(struct ftp_server *ftp_server)
 void ftp_session_unlock(struct ftp_session *session);
 
 /* FTP command prototypes (defined in ftp_cmd.c) */
-int ftp_list_start(struct ftp_session *session, const char *dir);
-void ftp_list_end(struct ftp_session *session);
-void ftp_list_failed(struct ftp_session *session);
+int ftp_list_start(struct ftp_session *session, const char *dir, loff_t pos);
+void ftp_list_end(struct ftp_session *session, int err);
 int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res);
 int ftp_read_start(struct ftp_session *session, const char *file_path, loff_t pos);
-void ftp_read_end(struct ftp_session *session);
-void ftp_read_failed(struct ftp_session *session);
+void ftp_read_end(struct ftp_session *session, int error);
 int ftp_read_next(struct ftp_session *session, char __user *buf, size_t count);
 
 /*
@@ -102,6 +100,14 @@ int ftp_read_next(struct ftp_session *session, char __user *buf, size_t count);
 static inline bool ftp_session_is_opened(struct ftp_session *session)
 {
 	return session && session->cmd_sock && session->cmd_sock->ops;
+}
+
+/*
+ * Check if a session is opened for data transfert.
+ */
+static inline bool ftp_session_is_data_opened(struct ftp_session *session)
+{
+	return ftp_session_is_opened(session) && session->data_sock && session->data_sock->ops;
 }
 
 #endif

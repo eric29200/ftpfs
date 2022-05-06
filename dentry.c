@@ -8,6 +8,7 @@
  */
 static int ftpfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 {
+	struct ftpfs_sb_info *sbi;
 	struct ftp_fattr fattr;
 	struct dentry *parent;
 	struct inode *dir;
@@ -23,6 +24,7 @@ static int ftpfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	/* get parent directory */
 	parent = dget_parent(dentry);
 	dir = d_inode(parent);
+	sbi = ftpfs_sb(dir->i_sb);
 
 	/* try to find entry */
 	ret = ftpfs_find_entry(dir, dentry, &fattr);

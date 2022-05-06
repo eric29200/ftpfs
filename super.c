@@ -188,7 +188,7 @@ err:
 enum {
 	Opt_user,
 	Opt_passwd,
-	Opt_dir_revalid_sec,
+	Opt_cache_timeout_sec,
 	Opt_nb_connections,
 };
 
@@ -198,7 +198,7 @@ enum {
 static struct fs_parameter_spec ftpfs_fs_parameters[] = {
 	fsparam_string("username",		Opt_user),
 	fsparam_string("password",		Opt_passwd),
-	fsparam_u32("dir_revalid_sec",		Opt_dir_revalid_sec),
+	fsparam_u32("cache_timeout_sec",	Opt_cache_timeout_sec),
 	fsparam_u32("nb_connections",		Opt_nb_connections),
 	{},
 };
@@ -231,8 +231,8 @@ static int ftpfs_fc_parse_param(struct fs_context *fc, struct fs_parameter *para
 		ctx->fs_opt.passwd = param->string;
 		param->string = NULL;
 		break;
-	case Opt_dir_revalid_sec:
-		ctx->fs_opt.dir_revalid_msec = res.uint_32 * 1000;
+	case Opt_cache_timeout_sec:
+		ctx->fs_opt.cache_timeout_sec = res.uint_32;
 		break;
 	case Opt_nb_connections:
 		ctx->fs_opt.nb_connections = res.uint_32;
@@ -286,7 +286,7 @@ int ftpfs_init_fs_context(struct fs_context *fc)
 	/* set default options */
 	ctx->fs_opt.user = FTPFS_FTP_USER_DEFAULT;
 	ctx->fs_opt.passwd = FTPFS_FTP_PASSWD_DEFAULT;
-	ctx->fs_opt.dir_revalid_msec = FTPFS_DIR_REVALID_MSEC;
+	ctx->fs_opt.cache_timeout_sec = FTPFS_CACHE_TIMEOUT_SEC;
 	ctx->fs_opt.nb_connections = FTPFS_NB_CONNECTIONS;
 
 	/* set context */

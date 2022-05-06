@@ -167,10 +167,12 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 	if (!ftp_server)
 		return ERR_PTR(-ENOMEM);
 
-	/* set FTP server name, user and password */
+	/* init server */
 	strncpy(ftp_server->ftp_sname, ftp_sname, FTP_SERVER_MAX_LEN - 1);
 	strncpy(ftp_server->ftp_user, ftp_user, FTP_USER_MAX_LEN - 1);
 	strncpy(ftp_server->ftp_passwd, ftp_passwd, FTP_PASSWD_MAX_LEN - 1);
+	mutex_init(&ftp_server->ftp_mutex);
+	INIT_LIST_HEAD(&ftp_server->ftp_sessions);
 
 	/* create main session */
 	ftp_server->ftp_main_session = ftp_session_create(ftp_server);
@@ -185,8 +187,6 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 		goto err;
 
 	/* create user sessions */
-	mutex_init(&ftp_server->ftp_mutex);
-	INIT_LIST_HEAD(&ftp_server->ftp_sessions);
 	for (i = 0; i < nb_connections - 1; i++) {
 		/* create session */
 		session = ftp_session_create(ftp_server);

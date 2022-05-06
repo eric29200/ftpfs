@@ -70,6 +70,13 @@ err:
 int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr *fattr)
 {
 	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
+	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
+
+	/* invalidate page cache on expiration */
+	if (time_after(jiffies, ftpfs_inode->i_mapping_expires)) {
+		invalidate_inode_pages2(inode->i_mapping);
+		ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
+	}
 
 	/* build full path */
 	kfree(ftpfs_inode->i_path);
@@ -92,6 +99,7 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 	if (S_ISDIR(inode->i_mode)) {
 		inode->i_op = &ftpfs_dir_iops;
 		inode->i_fop = &ftpfs_dir_fops;
+		inode->i_mapping->a_ops = &ftpfs_dir_aops;
 	} else if (S_ISLNK(inode->i_mode)) {
 		inode->i_op = &ftpfs_symlink_iops;
 		inode_nohighmem(inode);

@@ -15,23 +15,24 @@ static inline bool ftpfs_name_match(struct ftp_fattr *fattr, struct dentry *dent
 /*
  * Find an entry in a directory (look into page cache).
  */
-static int ftpfs_find_entry_from_page_cache(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
+int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
 {
-	int ret = 0, i, name_len;
+	struct ftp_session *session;
 	struct ftp_fattr *fattrs;
+	int ret = 0, i, name_len;
 	pgoff_t pg_idx = 0;
 	struct page *page;
 
-	/* revalidate directory */
-	ret = ftpfs_dir_revalidate_page_cache(dir);
-	if (ret)
-		return ret;
+	/* get and lock main FTP session */
+	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	if (!session)
+		return -EIO;
 
 	/* for each page */
 	for (pg_idx = 0;; pg_idx++) {
-		/* get page from cache */
-		page = ftpfs_pagecache_get_page(dir, pg_idx);
-		if (!page)
+		/* get page */
+		page = read_mapping_page(dir->i_mapping, pg_idx, session);
+		if (IS_ERR(page))
 			break;
 
 		/* map page */
@@ -70,75 +71,10 @@ out:
 		put_page(page);
 	}
 
-	return ret;
-}
-
-/*
- * Find an entry in a directory (ask to FTP server).
- */
-static int ftpfs_find_entry_from_ftp(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
-{
-	struct ftpfs_inode_info *ftpfs_dir = ftpfs_i(dir);
-	struct ftpfs_sb_info *sbi = ftpfs_sb(dir->i_sb);
-	struct ftp_session *session;
-	struct ftp_fattr fattr;
-	int ret, name_len;
-
-	/* get main session */
-	session = ftp_session_get_and_lock_main(sbi->s_ftp_server);
-	if (!session)
-		return -EIO;
-
-	/* start directory listing */
-	ret = ftp_list_start(session, ftpfs_dir->i_path);
-	if (ret)
-		goto err;
-
-	/* for each directory entry */
-	for (;;) {
-		/* get next directory entry */
-		ret = ftp_list_next(session, &fattr);
-		if (ret < 0)
-			goto err;
-
-		/* end of directory */
-		if (ret == 0)
-			break;
-
-		/* name match */
-		name_len = strnlen(fattr.f_name, FTP_MAX_NAMELEN);
-		if (ftpfs_name_match(&fattr, dentry)) {
-			memcpy(fattr_res, &fattr, sizeof(struct ftp_fattr));
-			ret = 0;
-			goto out;
-		}
-	}
-
-	ret = -ENOENT;
-out:
-	ftp_list_end(session);
+	/* unlock FTP session */
+	ftp_list_end(session, ret);
 	ftp_session_unlock(session);
 	return ret;
-err:
-	ftp_list_failed(session);
-	ftp_session_unlock(session);
-	return ret;
-}
-
-/*
- * Find an entry in a directory.
- */
-int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res)
-{
-	int ret;
-
-	/* try to find entry in page cache */
-	ret = ftpfs_find_entry_from_page_cache(dir, dentry, fattr_res);
-	if (ret == 0 || ret == -ENOENT)
-		return ret;
-
-	/* on failure ask to FTP server */
-	return ftpfs_find_entry_from_ftp(dir, dentry, fattr_res);
 }
 
 /*

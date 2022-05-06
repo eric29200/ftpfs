@@ -15,7 +15,7 @@ static int ftpfs_dir_readpage(struct file *file, struct page *page)
 	fattrs = kmap(page);
 	memset(fattrs, 0, PAGE_SIZE);
 
-	/* get main FTP session */
+	/* get FTP session */
 	session = (struct ftp_session *) file;
 	if (!session)
 		goto err;

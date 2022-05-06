@@ -329,12 +329,13 @@ void ftp_read_end(struct ftp_session *session, int err)
 /*
  * Read next buffer.
  */
-int ftp_read_next(struct ftp_session *session, char __user *buf, size_t count)
+ssize_t ftp_read_next(struct ftp_session *session, char *buf, size_t count)
 {
 	struct msghdr msg;
 	struct kvec iov;
+	ssize_t ret;
 	loff_t off;
-	int ret, n;
+	int n;
 
 	/* prepare message */
 	memset(&msg, 0, sizeof(struct msghdr));
@@ -344,18 +345,14 @@ int ftp_read_next(struct ftp_session *session, char __user *buf, size_t count)
 	/* get data and copy it to output buffer */
 	for (off = 0; count > 0;) {
 		/* set buffer */
-		iov.iov_base = session->buf;
-		iov.iov_len = count <= PAGE_SIZE ? count : PAGE_SIZE;
+		iov.iov_base = buf + off;
+		iov.iov_len = count;
 
 		/* get next buffer */
 		n = ftp_recvmsg(session->data_sock, &msg, &iov);
 		if (n < 0)
 			goto err;
 		if (n == 0)
-			break;
-
-		/* copy to output buffer */
-		if (copy_to_user(buf + off, session->buf, n))
 			break;
 
 		/* update position */

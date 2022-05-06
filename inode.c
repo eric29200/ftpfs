@@ -106,6 +106,7 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 	} else {
 		inode->i_op = &ftpfs_file_iops;
 		inode->i_fop = &ftpfs_file_fops;
+		inode->i_mapping->a_ops = &ftpfs_file_aops;
 	}
 
 	return 0;

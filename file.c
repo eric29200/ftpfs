@@ -42,13 +42,18 @@ static int ftpfs_file_release(struct inode *inode, struct file *file)
 }
 
 /*
- * Read a file.
+ * Read a file page.
  */
-static ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+static int ftpfs_file_readpage(struct file *file, struct page *page)
 {
-	struct inode *inode = file_inode(file);
+	struct inode *inode = page->mapping->host;
 	struct ftp_session *session;
 	ssize_t ret;
+	char *buf;
+
+	/* reset page */
+	buf = kmap(page);
+	memset(buf, 0, PAGE_SIZE);
 
 	/* use file session or main session */
 	if (file->private_data)
@@ -58,20 +63,17 @@ static ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count
 
 	/* no session available */
 	if (!session)
-		return -EIO;
+		goto err_session;
 
 	/* start FTP read */
-	ret = ftp_read_start(session, ftpfs_i(inode)->i_path, *pos);
+	ret = ftp_read_start(session, ftpfs_i(inode)->i_path, page_offset(page));
 	if (ret)
 		goto err;
 
 	/* read next buffer */
-	ret = ftp_read_next(session, buf, count);
+	ret = ftp_read_next(session, buf, PAGE_SIZE);
 	if (ret < 0)
 		goto err;
-
-	/* update file position */
-	*pos += ret;
 
 	/* if main session is used, end ftp read and unlock session */
 	if (!file->private_data) {
@@ -79,7 +81,12 @@ static ssize_t ftpfs_file_read(struct file *file, char __user *buf, size_t count
 		ftp_session_unlock(session);
 	}
 
-	return ret;
+	/* set page up to date */
+	SetPageUptodate(page);
+	ClearPageError(page);
+	kunmap(page);
+	unlock_page(page);
+	return 0;
 err:
 	/* end read with failure */
 	ftp_read_end(session, ret);
@@ -88,6 +95,13 @@ err:
 	if (!file->private_data)
 		ftp_session_unlock(session);
 
+err_session:
+	/* set page error */
+	ClearPageUptodate(page);
+	SetPageError(page);
+	kunmap(page);
+	unlock_page(page);
+	put_page(page);
 	return ret;
 }
 
@@ -98,7 +112,7 @@ const struct file_operations ftpfs_file_fops = {
 	.open		= ftpfs_file_open,
 	.release	= ftpfs_file_release,
 	.llseek		= generic_file_llseek,
-	.read		= ftpfs_file_read,
+	.read_iter	= generic_file_read_iter,
 };
 
 /*
@@ -106,4 +120,11 @@ const struct file_operations ftpfs_file_fops = {
  */
 const struct inode_operations ftpfs_file_iops = {
 
+};
+
+/*
+ * FTPFS file address space operations.
+ */
+const struct address_space_operations ftpfs_file_aops = {
+	.readpage	= ftpfs_file_readpage,
 };

@@ -92,7 +92,7 @@ void ftp_list_end(struct ftp_session *session, int err);
 int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res);
 int ftp_read_start(struct ftp_session *session, const char *file_path, loff_t pos);
 void ftp_read_end(struct ftp_session *session, int error);
-int ftp_read_next(struct ftp_session *session, char __user *buf, size_t count);
+ssize_t ftp_read_next(struct ftp_session *session, char *buf, size_t count);
 
 /*
  * Check if a session is opened.

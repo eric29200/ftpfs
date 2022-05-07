@@ -2,6 +2,21 @@
 #include "ftpfs.h"
 
 /*
+ * Revalidate a directory (invalidate page cache on expiration).
+ */
+void ftpfs_dir_revalidate(struct inode *inode)
+{
+	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
+	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
+
+	/* invalidate page cache on expiration */
+	if (time_after(jiffies, ftpfs_inode->i_mapping_expires)) {
+		invalidate_inode_pages2(inode->i_mapping);
+		ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
+	}
+}
+
+/*
  * Read a directory page.
  */
 static int ftpfs_dir_readpage(struct file *file, struct page *page)
@@ -69,6 +84,9 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 	struct ftp_fattr *fattrs;
 	struct page *page;
 	pgoff_t pg_idx;
+
+	/* revalidate directory */
+	ftpfs_dir_revalidate(inode);
 
 	/* emit "." and ".." */
 	if (!dir_emit_dots(file, ctx))

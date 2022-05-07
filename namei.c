@@ -23,6 +23,9 @@ int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr 
 	pgoff_t pg_idx = 0;
 	struct page *page;
 
+	/* revalidate directory */
+	ftpfs_dir_revalidate(dir);
+
 	/* get and lock main FTP session */
 	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session)

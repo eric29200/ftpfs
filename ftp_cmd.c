@@ -297,7 +297,7 @@ int ftp_read_start(struct ftp_session *session, const char *file_path, loff_t po
 		goto err;
 	}
 
-	session->data_pos = 0;
+	session->data_pos = pos;
 	return 0;
 err:
 	ftp_session_close(session);

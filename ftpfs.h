@@ -5,6 +5,7 @@
 #include <linux/fs.h>
 #include <linux/fs_context.h>
 #include <linux/pagemap.h>
+#include <linux/fscache.h>
 
 #include "ftp.h"
 
@@ -36,6 +37,7 @@ struct ftpfs_fs_context {
  */
 struct ftpfs_sb_info {
 	struct ftp_server		*s_ftp_server;		/* FTP server */
+	struct fscache_volume		*s_fscache;		/* netfs cache volume */
 	struct ftpfs_mount_opts		s_opt;			/* mount options */
 };
 
@@ -44,6 +46,7 @@ struct ftpfs_sb_info {
  */
 struct ftpfs_inode_info {
 	char				*i_path;		/* inode full path */
+	struct fscache_cookie		*i_fscache;		/* netfs cache cookie */
 	unsigned long			i_mapping_expires;	/* jiffies when inode mapping expires */
 	struct inode			vfs_inode;		/* VFS inode */
 };
@@ -67,6 +70,10 @@ void ftpfs_dir_revalidate(struct inode *inode);
 
 /* FTPFS name resolution prototypes (defined in namei.c) */
 int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);
+
+/* FTPFS cache prototypes (defined in cache.c) */
+int ftpfs_cache_super_get_volume(struct super_block *sb, const char *source);
+void ftpfs_cache_inode_get_cookie(struct inode *inode);
 
 /*
  * Get FTPFS context from generic context.

@@ -53,6 +53,7 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	inode->i_ino = get_next_ino();
 	ftpfs_i(inode)->i_path = NULL;
 	ftpfs_i(inode)->i_mapping_expires = jiffies;
+	ftpfs_cache_inode_get_cookie(inode);
 
 	/* refresh inode */
 	ftpfs_refresh_inode(inode, dir, fattr);

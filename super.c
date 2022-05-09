@@ -33,6 +33,9 @@ static void ftpfs_put_super(struct super_block *sb)
 {
 	struct ftpfs_sb_info *sbi = ftpfs_sb(sb);
 
+	/* relinquish netfs volume */
+	fscache_relinquish_volume(sbi->s_fscache, NULL, false);
+
 	/* free FTP server */
 	ftp_server_free(sbi->s_ftp_server);
 
@@ -60,8 +63,14 @@ static struct inode *ftpfs_alloc_inode(struct super_block *sb)
  */
 static void ftpfs_evict_inode(struct inode *inode)
 {
+	int version = 0;
+
 	/* truncate inode pages */
 	truncate_inode_pages_final(&inode->i_data);
+
+	/* relinquish netfs cookie */
+	fscache_clear_inode_writeback(ftpfs_i(inode)->i_fscache, inode, &version);
+	fscache_relinquish_cookie(ftpfs_i(inode)->i_fscache, false);
 
 	/* free inode full path */
 	if (ftpfs_i(inode)->i_path)
@@ -139,6 +148,11 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	if (!sbi)
 		return -ENOMEM;
 
+	/* create netfs cache volume */
+	ret = ftpfs_cache_super_get_volume(sb, fc->source);
+	if (ret)
+		goto err_cache;
+
 	/* create FTP server */
 	sbi->s_ftp_server = ftp_server_create(fc->source, ctx->fs_opt.user, ctx->fs_opt.passwd,
 					      ctx->fs_opt.nb_connections);
@@ -173,9 +187,14 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 err_no_root:
 	pr_err("FTPFS : can't get root inode\n");
 	ftp_server_free(sbi->s_ftp_server);
-	goto err;
+	goto err_release_cache;
 err_ftp_server_create:
 	pr_err("FTPFS : can't create FTP server \"%s\"\n", fc->source);
+err_release_cache:
+	fscache_relinquish_volume(sbi->s_fscache, NULL, false);
+	goto err;
+err_cache:
+	pr_err("FTPFS : can't create netfs cache\n");
 err:
 	kfree(sbi);
 	sb->s_fs_info = NULL;

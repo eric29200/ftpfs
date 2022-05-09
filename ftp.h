@@ -23,8 +23,9 @@
  * FTP session.
  */
 struct ftp_session {
-	struct ftp_server	*server;				/* ftp server */
+	struct ftp_server	*server;				/* FTP server */
 	struct sockaddr_in	saddr;					/* FTP server address */
+	bool			main;					/* is this the main session ? */
 	struct socket		*cmd_sock;				/* command socket */
 	struct socket		*data_sock;				/* data socket */
 	loff_t			data_pos;				/* data position */

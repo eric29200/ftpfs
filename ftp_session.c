@@ -37,7 +37,7 @@ static int ftp_resolve_host(struct ftp_server *ftp_server, struct sockaddr_in *s
 /*
  * Create a FTP session.
  */
-static struct ftp_session *ftp_session_create(struct ftp_server *ftp_server)
+static struct ftp_session *ftp_session_create(struct ftp_server *ftp_server, bool main)
 {
 	struct ftp_session *session = NULL;
 
@@ -51,8 +51,9 @@ static struct ftp_session *ftp_session_create(struct ftp_server *ftp_server)
 	if (!session->buf)
 		goto err;
 
-	/* init server */
+	/* init session */
 	session->server = ftp_server;
+	session->main = main;
 	mutex_init(&session->mutex);
 
 	return session;
@@ -175,7 +176,7 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 	INIT_LIST_HEAD(&ftp_server->ftp_sessions);
 
 	/* create main session */
-	ftp_server->ftp_main_session = ftp_session_create(ftp_server);
+	ftp_server->ftp_main_session = ftp_session_create(ftp_server, true);
 	if (!ftp_server->ftp_main_session) {
 		ret = -ENOMEM;
 		goto err;
@@ -189,7 +190,7 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 	/* create user sessions */
 	for (i = 0; i < nb_connections - 1; i++) {
 		/* create session */
-		session = ftp_session_create(ftp_server);
+		session = ftp_session_create(ftp_server, false);
 		if (!session) {
 			ret = -ENOMEM;
 			goto err;

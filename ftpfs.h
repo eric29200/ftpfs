@@ -47,7 +47,7 @@ struct ftpfs_sb_info {
 struct ftpfs_inode_info {
 	char				*i_path;		/* inode full path */
 	struct fscache_cookie		*i_fscache;		/* netfs cache cookie */
-	unsigned long			i_mapping_expires;	/* jiffies when inode mapping expires */
+	unsigned long			i_expires;		/* jiffies when inode needs to be revalidated */
 	struct inode			vfs_inode;		/* VFS inode */
 };
 

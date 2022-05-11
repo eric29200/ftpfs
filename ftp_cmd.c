@@ -619,3 +619,27 @@ err:
 	ftp_session_close(session);
 	return ret;
 }
+
+/*
+ * Create a directory.
+ */
+int ftp_mkdir(struct ftp_session *session, const char *file_path)
+{
+	int ret;
+
+	/* open session */
+	ret = ftp_session_open(session);
+	if (ret)
+		goto err;
+
+	/* send mkdir command */
+	if (ftp_cmd(session, "MKD", file_path) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	return 0;
+err:
+	ftp_session_close(session);
+	return ret;
+}

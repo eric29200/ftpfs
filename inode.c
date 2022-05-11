@@ -52,7 +52,7 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	/* init inode */
 	inode->i_ino = get_next_ino();
 	ftpfs_i(inode)->i_path = NULL;
-	ftpfs_i(inode)->i_mapping_expires = jiffies;
+	ftpfs_i(inode)->i_expires = jiffies;
 	ftpfs_cache_inode_get_cookie(inode);
 
 	/* refresh inode */
@@ -74,7 +74,7 @@ void ftpfs_invalidate_inode_cache(struct inode *inode)
 	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
 
 	invalidate_inode_pages2(inode->i_mapping);
-	ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
+	ftpfs_inode->i_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
 }
 
 /*
@@ -85,7 +85,7 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
 
 	/* inode is still valid */
-	if (time_before(jiffies, ftpfs_inode->i_mapping_expires))
+	if (time_before(jiffies, ftpfs_inode->i_expires))
 		return 0;
 
 	/* invalidate page cache */

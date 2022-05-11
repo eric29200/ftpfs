@@ -579,3 +579,43 @@ err:
 	ftp_write_end(session, ret);
 	return ret;
 }
+
+/*
+ * Create a file.
+ */
+int ftp_create(struct ftp_session *session, const char *file_path)
+{
+	int ret;
+
+	/* start FTP write */
+	ret = ftp_write_start(session, file_path, 0);
+
+	/* end FTP write */
+	ftp_write_end(session, ret);
+
+	return ret;
+}
+
+/*
+ * Delete a file.
+ */
+int ftp_delete(struct ftp_session *session, const char *file_path)
+{
+	int ret;
+
+	/* open session */
+	ret = ftp_session_open(session);
+	if (ret)
+		goto err;
+
+	/* send delete command */
+	if (ftp_cmd(session, "DELE", file_path) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	return 0;
+err:
+	ftp_session_close(session);
+	return ret;
+}

@@ -94,6 +94,8 @@ void ftp_list_end(struct ftp_session *session, int err);
 int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res);
 ssize_t ftp_read(struct ftp_session *session, const char *file_path, loff_t pos, struct iov_iter *iter, size_t iter_len);
 ssize_t ftp_write(struct ftp_session *session, const char *file_path, loff_t pos, struct iov_iter *iter, size_t iter_len);
+int ftp_create(struct ftp_session *session, const char *file_path);
+int ftp_delete(struct ftp_session *session, const char *file_path);
 
 /*
  * Check if a session is opened.

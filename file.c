@@ -332,24 +332,32 @@ static int ftpfs_file_release(struct inode *inode, struct file *file)
 	int version = 0;
 	loff_t i_size;
 
+	/* mark cookie unused */
+	if (file->f_mode & FMODE_WRITE) {
+		i_size = i_size_read(inode);
+		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, &version, &i_size);
+
+		/* invalidate inode pages (to write them on disk) */
+		invalidate_inode_pages2(inode->i_mapping);
+	} else {
+		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, NULL, NULL);
+	}
+
 	/* close file session */
 	if (session) {
 		ftp_session_close(session);
 		ftp_session_unlock(session);
 	}
 
-	/* mark cookie unused */
-	if (file->f_mode & FMODE_WRITE) {
-		i_size = i_size_read(inode);
-		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, &version, &i_size);
-
-		/* invalidate mapping (= force to write pages on FTP server) */
-		invalidate_inode_pages2(inode->i_mapping);
-	} else {
-		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, NULL, NULL);
-	}
-
 	return 0;
+}
+
+/*
+ * Synchronize a file.
+ */
+static int ftpfs_file_fsync(struct file *file, loff_t start, loff_t end, int datasync)
+{
+	return file_write_and_wait_range(file, start, end);
 }
 
 /*
@@ -361,6 +369,7 @@ const struct file_operations ftpfs_file_fops = {
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
 	.write_iter	= generic_file_write_iter,
+	.fsync		= ftpfs_file_fsync,
 };
 
 /*

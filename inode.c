@@ -4,7 +4,7 @@
 /*
  * Build full path of a file (concat directory path and file name).
  */
-static char *ftpfs_build_full_path(struct inode *dir, struct ftp_fattr *fattr)
+char *ftpfs_build_full_path(struct inode *dir, struct ftp_fattr *fattr)
 {
 	size_t name_len, dir_path_len;
 	char *path;
@@ -66,20 +66,30 @@ err:
 }
 
 /*
+ * Revalidate inode page cache.
+ */
+void ftpfs_invalidate_inode_cache(struct inode *inode)
+{
+	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
+	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
+
+	invalidate_inode_pages2(inode->i_mapping);
+	ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
+}
+
+/*
  * Refresh an inode.
  */
 int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr *fattr)
 {
 	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
-	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
 
 	/* inode is still valid */
 	if (time_before(jiffies, ftpfs_inode->i_mapping_expires))
 		return 0;
 
 	/* invalidate page cache */
-	invalidate_inode_pages2(inode->i_mapping);
-	ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
+	ftpfs_invalidate_inode_cache(inode);
 
 	/* build full path */
 	kfree(ftpfs_inode->i_path);

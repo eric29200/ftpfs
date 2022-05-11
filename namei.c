@@ -97,8 +97,92 @@ static struct dentry *ftpfs_lookup(struct inode *dir, struct dentry *dentry, uns
 }
 
 /*
+ * Create a file.
+ */
+static int ftpfs_create(struct user_namespace *mnt_userns, struct inode *dir,
+			struct dentry *dentry, umode_t mode, bool excl)
+{
+	struct ftp_session *session;
+	struct ftp_fattr fattr;
+	struct inode *inode;
+	int ret = -EINVAL;
+	char *file_path;
+	size_t name_len;
+
+	/* truncate file name */
+	name_len = dentry->d_name.len;
+	if (name_len > FTP_MAX_NAMELEN)
+		name_len = FTP_MAX_NAMELEN;
+
+	/* build file path */
+	memset(&fattr, 0, sizeof(struct ftp_fattr));
+	memcpy(fattr.f_name, dentry->d_name.name, name_len);
+	file_path = ftpfs_build_full_path(dir, &fattr);
+	if (!file_path)
+		return -ENOMEM;
+
+	/* create file */
+	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	ret = ftp_create(session, file_path);
+	ftp_session_unlock(session);
+
+	/* exit on error */
+	if (ret)
+		goto out;
+
+	/* invalidate directory cache */
+	ftpfs_invalidate_inode_cache(dir);
+
+	/* find entry */
+	ret = ftpfs_find_entry(dir, dentry, &fattr);
+	if (ret)
+		goto out;
+
+	/* get inode and set entry */
+	inode = ftpfs_iget(dir->i_sb, dir, &fattr);
+	if (inode)
+		d_instantiate(dentry, inode);
+out:
+	kfree(file_path);
+	return ret;
+}
+
+/*
+ * Remove a file.
+ */
+static int ftpfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+	struct inode *inode = d_inode(dentry);
+	struct ftp_session *session;
+	int ret;
+
+	/* get main session */
+	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	if (!session)
+		goto out;
+
+	/* delete file */
+	ret = ftp_delete(session, ftpfs_i(inode)->i_path);
+
+	/* on success, invalidate directory cache */
+	if (ret == 0)
+		ftpfs_i(dir)->i_mapping_expires = jiffies;
+
+	/* unlock FTP session */
+	ftp_session_unlock(session);
+
+	/* update inode */
+	inode->i_ctime = dir->i_ctime;
+	inode_dec_link_count(inode);
+out:
+	return ret;
+}
+
+/*
  * FTPFS directory inode operations.
  */
 const struct inode_operations ftpfs_dir_iops = {
 	.lookup			= ftpfs_lookup,
+	.create			= ftpfs_create,
+	.unlink			= ftpfs_unlink,
 };

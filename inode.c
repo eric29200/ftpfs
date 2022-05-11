@@ -53,7 +53,6 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	inode->i_ino = get_next_ino();
 	ftpfs_i(inode)->i_path = NULL;
 	ftpfs_i(inode)->i_expires = jiffies;
-	ftpfs_cache_inode_get_cookie(inode);
 
 	/* refresh inode */
 	ftpfs_refresh_inode(inode, dir, fattr);
@@ -84,6 +83,10 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 {
 	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
 
+	/* netfs cache in use (= file opened) : don't refresh inode */
+	if (ftpfs_inode->i_fscache && atomic_read(&ftpfs_inode->i_fscache->n_active) > 1)
+		return 0;
+
 	/* inode is still valid */
 	if (time_before(jiffies, ftpfs_inode->i_expires))
 		return 0;
@@ -102,8 +105,11 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 	set_nlink(inode, fattr->f_nlinks);
 	i_size_write(inode, fattr->f_size);
 
-	/* resize netfs cache */
-	fscache_resize_cookie(ftpfs_inode->i_fscache, fattr->f_size);
+	/* create or resize netfs cache */
+	if (ftpfs_inode->i_fscache)
+		fscache_resize_cookie(ftpfs_inode->i_fscache, fattr->f_size);
+	else
+		ftpfs_cache_inode_get_cookie(inode);
 
 	/* set time */
 	if (fattr->f_time) {

@@ -71,16 +71,17 @@ static void ftpfs_evict_inode(struct inode *inode)
 	/* truncate inode pages */
 	truncate_inode_pages_final(&inode->i_data);
 
-	/* relinquish netfs cookie */
+	/* clear inode */
 	fscache_clear_inode_writeback(ftpfs_i(inode)->i_fscache, inode, &version);
+	clear_inode(inode);
+	filemap_fdatawrite(&inode->i_data);
+
+	/* relinquish netfs cookie */
 	fscache_relinquish_cookie(ftpfs_i(inode)->i_fscache, false);
 
 	/* free inode full path */
 	if (ftpfs_i(inode)->i_path)
 		kfree(ftpfs_i(inode)->i_path);
-
-	/* clear inode */
-	clear_inode(inode);
 }
 
 /*

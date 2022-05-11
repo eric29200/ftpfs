@@ -73,11 +73,13 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(inode);
 	struct ftpfs_sb_info *sbi = ftpfs_sb(inode->i_sb);
 
-	/* invalidate page cache on expiration */
-	if (time_after(jiffies, ftpfs_inode->i_mapping_expires)) {
-		invalidate_inode_pages2(inode->i_mapping);
-		ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
-	}
+	/* inode is still valid */
+	if (time_before(jiffies, ftpfs_inode->i_mapping_expires))
+		return 0;
+
+	/* invalidate page cache */
+	invalidate_inode_pages2(inode->i_mapping);
+	ftpfs_inode->i_mapping_expires = jiffies + msecs_to_jiffies(sbi->s_opt.cache_timeout_sec * 1000);
 
 	/* build full path */
 	kfree(ftpfs_inode->i_path);
@@ -89,6 +91,9 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 	inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
 	set_nlink(inode, fattr->f_nlinks);
 	i_size_write(inode, fattr->f_size);
+
+	/* resize netfs cache */
+	fscache_resize_cookie(ftpfs_inode->i_fscache, fattr->f_size);
 
 	/* set time */
 	if (fattr->f_time) {

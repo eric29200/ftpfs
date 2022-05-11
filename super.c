@@ -8,6 +8,9 @@
 
 #include "ftpfs.h"
 
+/* root file attributes */
+struct ftp_fattr root_fattr;
+
 /* FTPFS inode cache */
 static struct kmem_cache *ftpfs_inode_cache;
 
@@ -138,7 +141,6 @@ static struct super_operations ftpfs_sops = {
 static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 {
 	struct ftpfs_fs_context *ctx = ftpfs_ctx(fc);
-	struct ftp_fattr root_fattr;
 	struct ftpfs_sb_info *sbi;
 	struct inode *root_inode;
 	int ret;
@@ -162,7 +164,6 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	}
 
 	/* set super block */
-	sb->s_flags |= SB_RDONLY | SB_NOATIME;
 	sb->s_op = &ftpfs_sops;
 	sb->s_d_op = &ftpfs_dops;
 	sbi->s_opt = ftpfs_ctx(fc)->fs_opt;

@@ -269,7 +269,7 @@ void ftp_server_free(struct ftp_server *ftp_server)
 /*
  * Open a data socket.
  */
-int ftp_open_data_socket(struct ftp_session *session)
+int ftp_open_data_socket(struct ftp_session *session, int direction)
 {
 	struct sockaddr_in sa;
 	int ret = -ENOSPC;
@@ -311,6 +311,8 @@ int ftp_open_data_socket(struct ftp_session *session)
 	if (ret)
 		goto err;
 
+	session->data_direction = direction;
+	session->data_pos = 0;
 	return 0;
 err:
 	ftp_session_close(session);

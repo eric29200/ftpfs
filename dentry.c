@@ -26,6 +26,13 @@ static int ftpfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 	dir = d_inode(parent);
 	sbi = ftpfs_sb(dir->i_sb);
 
+	/* root dentry revalidation : just use root_fattr */
+	if (dentry == dentry->d_sb->s_root) {
+		dir = NULL;
+		memcpy(&fattr, &root_fattr, sizeof(struct ftp_fattr));
+		goto refresh_inode;
+	}
+
 	/* try to find entry */
 	ret = ftpfs_find_entry(dir, dentry, &fattr);
 	if (ret) {
@@ -33,6 +40,7 @@ static int ftpfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 		return 0;
 	}
 
+refresh_inode:
 	/* refresh inode */
 	ftpfs_refresh_inode(dentry->d_inode, dir, &fattr);
 
@@ -65,6 +73,7 @@ static int ftpfs_d_delete(const struct dentry *dentry)
  */
 const struct dentry_operations ftpfs_dops = {
 	.d_revalidate		= ftpfs_d_revalidate,
+	.d_weak_revalidate	= ftpfs_d_revalidate,
 	.d_iput			= ftpfs_d_iput,
 	.d_delete		= ftpfs_d_delete,
 };

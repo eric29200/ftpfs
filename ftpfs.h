@@ -51,6 +51,9 @@ struct ftpfs_inode_info {
 	struct inode			vfs_inode;		/* VFS inode */
 };
 
+/* root file attributes */
+extern struct ftp_fattr root_fattr;
+
 /* FTPFS operations */
 extern const struct dentry_operations ftpfs_dops;
 extern const struct inode_operations ftpfs_file_iops;
@@ -64,9 +67,6 @@ extern const struct address_space_operations ftpfs_dir_aops;
 /* FTPFS inode protoypes (defined in inode.c) */
 struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_fattr *fattr);
 int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr *fattr);
-
-/* FTP directory prototypes (defined in dir.c) */
-void ftpfs_dir_revalidate(struct inode *inode);
 
 /* FTPFS name resolution prototypes (defined in namei.c) */
 int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/swap.h>
 #include "ftpfs.h"
 
 /*
@@ -6,24 +7,12 @@
  */
 static void ftpfs_req_issue_op(struct netfs_read_subrequest *subreq)
 {
-	size_t len, page_off, bytes, total = 0, npages, i, req_len;
 	struct netfs_read_request *rreq = subreq->rreq;
 	struct ftp_session *session;
 	ssize_t ret = -EINVAL;
 	struct iov_iter iter;
-	struct page **pages;
 	loff_t pos;
-	char *buf;
-
-	/* get pages */
-	pos = subreq->start + subreq->transferred;
-	len = subreq->len - subreq->transferred;
-	iov_iter_xarray(&iter, READ, &rreq->mapping->i_pages, pos, len);
-	bytes = iov_iter_get_pages_alloc(&iter, &pages, len, &page_off);
-	if (bytes < 0) {
-		ret = bytes;
-		goto out;
-	}
+	size_t len;
 
 	/* if no session is attached to this request, use main FTP session */
 	session = rreq->netfs_priv;
@@ -34,42 +23,18 @@ static void ftpfs_req_issue_op(struct netfs_read_subrequest *subreq)
 	if (!session)
 		goto out;
 
-	/* start FTP read */
-	ret = ftp_read_start(session, ftpfs_i(rreq->inode)->i_path, pos);
-	if (ret)
-		goto err_ftp;
+	/* prepare xarray */
+	pos = subreq->start + subreq->transferred;
+	len = subreq->len - subreq->transferred;
+	iov_iter_xarray(&iter, READ, &rreq->mapping->i_pages, pos, len);
 
-	/* read each page */
-	npages = (bytes + page_off + PAGE_SIZE - 1) / PAGE_SIZE;
-	for (i = 0; i < npages; i++) {
-		/* read next buffer */
-		buf = kmap(pages[i]);
-		req_len = min_t(size_t, bytes, PAGE_SIZE - page_off);
-		ret = ftp_read_next(session, buf + page_off, req_len);
-		kunmap(pages[i]);
-		if (ret < 0)
-			goto err_ftp;
-		if (ret == 0)
-			break;
+	/* read from FTP */
+	ret = ftp_read(session, ftpfs_i(rreq->inode)->i_path, pos, &iter, len);
 
-		page_off = 0;
-		total += ret;
-	}
-
-	/* if main session used, end FTP read and unlock session */
-	if (session && session->main) {
-		ftp_read_end(session, 0);
-		ftp_session_unlock(session);
-	}
-
-	ret = total;
-	goto out;
-err_ftp:
-	ftp_read_end(session, ret);
-
-	/* if main session used, unlock it */
+	/* if main session is used, unlock session */
 	if (session && session->main)
 		ftp_session_unlock(session);
+
 out:
 	netfs_subreq_terminated(subreq, ret, false);
 }
@@ -129,6 +94,210 @@ static int ftpfs_file_readpage(struct file *file, struct page *page)
 }
 
 /*
+ * Mark a page dirty.
+ */
+static int ftpfs_file_set_page_dirty(struct page *page)
+{
+	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(page->mapping->host);
+
+	return fscache_set_page_dirty(page, ftpfs_inode->i_fscache);
+}
+
+/*
+ * Handle error on netfs cache write.
+ */
+static void ftpfs_file_write_to_cache_done(void *priv, ssize_t transferred_or_error, bool was_async)
+{
+	struct ftpfs_inode_info *ftpfs_inode = priv;
+	int version = 0;
+
+	if (IS_ERR_VALUE(transferred_or_error) && transferred_or_error != -ENOBUFS)
+		fscache_invalidate(ftpfs_inode->i_fscache, &version, i_size_read(&ftpfs_inode->vfs_inode), 0);
+}
+
+/*
+ * Write a page.
+ */
+static int ftpfs_file_write_folio_locked(struct folio *folio)
+{
+	struct inode *inode = folio_inode(folio);
+	struct ftp_session *session;
+	struct iov_iter iter;
+	loff_t pos, i_size;
+	size_t len;
+	int ret;
+
+	/* simultaneous truncate */
+	i_size = i_size_read(inode);
+	pos = folio_pos(folio);
+	len = folio_size(folio);
+	if (pos >= i_size)
+		return 0;
+
+	/* init xarray */
+	len = min_t(loff_t, i_size - pos, len);
+	iov_iter_xarray(&iter, WRITE, &folio_mapping(folio)->i_pages, pos, len);
+
+	/* wait for netfs cache */
+	folio_wait_fscache(folio);
+	folio_start_writeback(folio);
+
+	/* get FTP session attached to folio or use main FTP session */
+	session = folio->private;
+	if (!session)
+		session = ftp_session_get_and_lock_main(ftpfs_sb(inode->i_sb)->s_ftp_server);
+
+	/* write to FTP */
+	ret = ftp_write(session, ftpfs_i(inode)->i_path, pos, &iter, len);
+
+	/* if main session is used, unlock it */
+	if (session->main)
+		ftp_session_unlock(session);
+
+	/* detach session from folio */
+	folio->private = NULL;
+
+	/* write to netfs cache */
+	if (ret >= 0 && fscache_cookie_enabled(ftpfs_i(inode)->i_fscache)) {
+		folio_start_fscache(folio);
+		fscache_write_to_cache(ftpfs_i(inode)->i_fscache, folio_mapping(folio), pos, len, i_size,
+				       ftpfs_file_write_to_cache_done, ftpfs_i(inode), true);
+	}
+
+	folio_end_writeback(folio);
+	return ret < 0 ? ret : 0;
+}
+
+/*
+ * Write a page.
+ */
+static int ftpfs_file_writepage(struct page *page, struct writeback_control *wbc)
+{
+	struct folio *folio = page_folio(page);
+	int ret;
+
+	ret = ftpfs_file_write_folio_locked(folio);
+	if (ret < 0) {
+		if (ret == -EAGAIN) {
+			folio_redirty_for_writepage(wbc, folio);
+			ret = 0;
+		} else {
+			mapping_set_error(folio_mapping(folio), ret);
+		}
+	} else {
+		ret = 0;
+	}
+
+	folio_unlock(folio);
+	return ret;
+}
+
+/*
+ * Start a write request.
+ */
+static int ftpfs_file_write_begin(struct file *file, struct address_space *mapping, loff_t pos, unsigned int len,
+				  unsigned int flags, struct page **pagep, void **fsdata)
+{
+	struct folio *folio;
+	int ret;
+
+	ret = netfs_write_begin(file, mapping, pos, len, flags, &folio, fsdata, &ftpfs_req_ops, NULL);
+	if (ret < 0)
+		return ret;
+
+	*pagep = &folio->page;
+	return ret;
+}
+
+/*
+ * End a write request.
+ */
+static int ftpfs_file_write_end(struct file *file, struct address_space *mapping, loff_t pos, unsigned int len,
+				unsigned int copied, struct page *page, void *fsdata)
+{
+	struct folio *folio = page_folio(page);
+	struct inode *inode = mapping->host;
+	loff_t last_pos = pos + copied;
+
+	/* check if folio is up to date */
+	if (!folio_test_uptodate(folio)) {
+		if (copied < len) {
+			copied = 0;
+			goto out;
+		}
+
+		folio_mark_uptodate(folio);
+	}
+
+	/* update inode size */
+	if (last_pos > inode->i_size) {
+		inode_add_bytes(inode, last_pos - inode->i_size);
+		i_size_write(inode, last_pos);
+		fscache_update_cookie(ftpfs_i(inode)->i_fscache, NULL, &last_pos);
+	}
+
+	/* attach FTP session to folio */
+	folio->private = file->private_data;
+
+	folio_mark_dirty(folio);
+out:
+	folio_unlock(folio);
+	folio_put(folio);
+	return copied;
+}
+
+/*
+ * Release a page.
+ */
+static int ftpfs_file_releasepage(struct page *page, gfp_t gfp)
+{
+	struct folio *folio = page_folio(page);
+
+	if (folio_test_private(folio))
+		return 0;
+
+	/* wait for netfs cache */
+	if (folio_test_fscache(folio)) {
+		if (current_is_kswapd() || !(gfp & __GFP_FS))
+			return 0;
+
+		folio_wait_fscache(folio);
+	}
+
+	/* release page */
+	fscache_note_page_release(ftpfs_i(folio_inode(folio))->i_fscache);
+	return 1;
+}
+
+/*
+ * Invalidate a page.
+ */
+static void ftpfs_file_invalidatepage(struct page *page, unsigned int offset, unsigned int len)
+{
+	struct folio *folio = page_folio(page);
+
+	folio_wait_fscache(folio);
+}
+
+/*
+ * Laund a page (write it on disk = to FTP server).
+ */
+static int ftpfs_file_launder_page(struct page *page)
+{
+	struct folio *folio = page_folio(page);
+	int ret;
+
+	if (folio_clear_dirty_for_io(folio)) {
+		ret = ftpfs_file_write_folio_locked(folio);
+		if (ret)
+			return ret;
+	}
+
+	folio_wait_fscache(folio);
+	return 0;
+}
+
+/*
  * Open a file (try to get an exclusive FTP user session).
  */
 static int ftpfs_file_open(struct inode *inode, struct file *file)
@@ -148,6 +317,9 @@ static int ftpfs_file_open(struct inode *inode, struct file *file)
 	else
 		ftp_session_unlock(session);
 
+	/* mark cookie in use */
+	fscache_use_cookie(ftpfs_i(inode)->i_fscache, file->f_mode & FMODE_WRITE);
+
 	return 0;
 }
 
@@ -156,13 +328,25 @@ static int ftpfs_file_open(struct inode *inode, struct file *file)
  */
 static int ftpfs_file_release(struct inode *inode, struct file *file)
 {
-	struct ftp_session *session;
+	struct ftp_session *session = file->private_data;
+	int version = 0;
+	loff_t i_size;
 
 	/* close file session */
-	if (file->private_data != NULL) {
-		session = file->private_data;
+	if (session) {
 		ftp_session_close(session);
 		ftp_session_unlock(session);
+	}
+
+	/* mark cookie unused */
+	if (file->f_mode & FMODE_WRITE) {
+		i_size = i_size_read(inode);
+		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, &version, &i_size);
+
+		/* invalidate mapping (= force to write pages on FTP server) */
+		invalidate_inode_pages2(inode->i_mapping);
+	} else {
+		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, NULL, NULL);
 	}
 
 	return 0;
@@ -176,6 +360,7 @@ const struct file_operations ftpfs_file_fops = {
 	.release	= ftpfs_file_release,
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
+	.write_iter	= generic_file_write_iter,
 };
 
 /*
@@ -189,5 +374,12 @@ const struct inode_operations ftpfs_file_iops = {
  * FTPFS file address space operations.
  */
 const struct address_space_operations ftpfs_file_aops = {
-	.readpage	= ftpfs_file_readpage,
+	.readpage		= ftpfs_file_readpage,
+	.set_page_dirty		= ftpfs_file_set_page_dirty,
+	.writepage		= ftpfs_file_writepage,
+	.write_begin		= ftpfs_file_write_begin,
+	.write_end		= ftpfs_file_write_end,
+	.releasepage		= ftpfs_file_releasepage,
+	.invalidatepage		= ftpfs_file_invalidatepage,
+	.launder_page		= ftpfs_file_launder_page,
 };

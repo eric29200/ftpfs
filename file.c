@@ -83,13 +83,6 @@ static void ftpfs_init_rreq(struct netfs_read_request *rreq, struct file *file)
 }
 
 /*
- * Cleanup a netfs read request.
- */
-static void ftpfs_req_cleanup(struct address_space *mapping, void *priv)
-{
-}
-
-/*
  * Check if an inode can be cached.
  */
 static bool ftpfs_is_cache_enabled(struct inode *inode)
@@ -115,7 +108,6 @@ static const struct netfs_read_request_ops ftpfs_req_ops = {
 	.is_cache_enabled	= ftpfs_is_cache_enabled,
 	.begin_cache_operation	= ftpfs_begin_cache_operation,
 	.issue_op		= ftpfs_req_issue_op,
-	.cleanup		= ftpfs_req_cleanup,
 };
 
 /*

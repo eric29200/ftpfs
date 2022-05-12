@@ -229,6 +229,37 @@ out:
 }
 
 /*
+ * Remove a directory.
+ */
+static int ftpfs_rmdir(struct inode *dir, struct dentry *dentry)
+{
+	struct inode *inode = d_inode(dentry);
+	struct ftp_session *session;
+	int ret;
+
+	/* get main session */
+	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	if (!session)
+		goto out;
+
+	/* delete directory */
+	ret = ftp_rmdir(session, ftpfs_i(inode)->i_path);
+
+	/* on success, invalidate directory cache */
+	if (ret == 0)
+		ftpfs_i(dir)->i_expires = jiffies;
+
+	/* unlock FTP session */
+	ftp_session_unlock(session);
+
+	/* update inode */
+	inode->i_ctime = dir->i_ctime;
+	inode_dec_link_count(inode);
+out:
+	return ret;
+}
+
+/*
  * FTPFS directory inode operations.
  */
 const struct inode_operations ftpfs_dir_iops = {
@@ -236,4 +267,5 @@ const struct inode_operations ftpfs_dir_iops = {
 	.create			= ftpfs_create,
 	.unlink			= ftpfs_unlink,
 	.mkdir			= ftpfs_mkdir,
+	.rmdir			= ftpfs_rmdir,
 };

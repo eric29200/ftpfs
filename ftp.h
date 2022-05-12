@@ -97,6 +97,7 @@ ssize_t ftp_write(struct ftp_session *session, const char *file_path, loff_t pos
 int ftp_create(struct ftp_session *session, const char *file_path);
 int ftp_delete(struct ftp_session *session, const char *file_path);
 int ftp_mkdir(struct ftp_session *session, const char *file_path);
+int ftp_rmdir(struct ftp_session *session, const char *file_path);
 
 /*
  * Check if a session is opened.

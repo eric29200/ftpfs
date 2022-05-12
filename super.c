@@ -79,9 +79,9 @@ static void ftpfs_evict_inode(struct inode *inode)
 	/* relinquish netfs cookie */
 	fscache_relinquish_cookie(ftpfs_i(inode)->i_fscache, false);
 
-	/* free inode full path */
-	if (ftpfs_i(inode)->i_path)
-		kfree(ftpfs_i(inode)->i_path);
+	/* clear inode */
+	kfree(ftpfs_i(inode)->i_path);
+	ftpfs_i(inode)->i_fscache = NULL;
 }
 
 /*

@@ -307,15 +307,14 @@ static int ftpfs_file_open(struct inode *inode, struct file *file)
 
 	/* get and lock a user session */
 	session = ftp_session_get_and_lock_user(ftpfs_sb(inode->i_sb)->s_ftp_server);
-	if (!session)
-		return 0;
-
-	/* try to open it and attach it to the file */
-	ret = ftp_session_open(session);
-	if (ret == 0)
-		file->private_data = session;
-	else
-		ftp_session_unlock(session);
+	if (session) {
+		/* try to open it and attach it to the file */
+		ret = ftp_session_open(session);
+		if (ret == 0)
+			file->private_data = session;
+		else
+			ftp_session_unlock(session);
+	}
 
 	/* mark cookie in use */
 	fscache_use_cookie(ftpfs_i(inode)->i_fscache, file->f_mode & FMODE_WRITE);

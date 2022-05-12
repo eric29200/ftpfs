@@ -42,7 +42,9 @@ static int ftpfs_d_revalidate(struct dentry *dentry, unsigned int flags)
 
 refresh_inode:
 	/* refresh inode */
-	ftpfs_refresh_inode(dentry->d_inode, dir, &fattr);
+	ret = ftpfs_refresh_inode(dentry->d_inode, dir, &fattr);
+	if (ret)
+		return 0;
 
 	dput(parent);
 	return 1;

@@ -51,11 +51,38 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 
 	/* init inode */
 	inode->i_ino = get_next_ino();
-	ftpfs_i(inode)->i_path = NULL;
+	inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
+	set_nlink(inode, fattr->f_nlinks);
+	i_size_write(inode, fattr->f_size);
 	ftpfs_i(inode)->i_expires = jiffies;
 
-	/* refresh inode */
-	ftpfs_refresh_inode(inode, dir, fattr);
+	/* build full path */
+	ftpfs_i(inode)->i_path = ftpfs_build_full_path(dir, fattr);
+	if (!ftpfs_i(inode)->i_path)
+		goto err;
+
+	/* create netfs cache */
+	ftpfs_cache_inode_get_cookie(inode);
+
+	/* set time */
+	if (fattr->f_time) {
+		inode->i_atime.tv_sec = inode->i_mtime.tv_sec = inode->i_ctime.tv_sec = fattr->f_time;
+		inode->i_atime.tv_nsec = inode->i_mtime.tv_nsec = inode->i_ctime.tv_nsec = 0;
+	}
+
+	/* set inode operations */
+	if (S_ISDIR(inode->i_mode)) {
+		inode->i_op = &ftpfs_dir_iops;
+		inode->i_fop = &ftpfs_dir_fops;
+		inode->i_mapping->a_ops = &ftpfs_dir_aops;
+	} else if (S_ISLNK(inode->i_mode)) {
+		inode->i_op = &ftpfs_symlink_iops;
+		inode_nohighmem(inode);
+	} else {
+		inode->i_op = &ftpfs_file_iops;
+		inode->i_fop = &ftpfs_file_fops;
+		inode->i_mapping->a_ops = &ftpfs_file_aops;
+	}
 
 	return inode;
 err:
@@ -94,41 +121,25 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 	/* invalidate page cache */
 	ftpfs_invalidate_inode_cache(inode);
 
-	/* build full path */
+	/* rebuild full path */
 	kfree(ftpfs_inode->i_path);
 	ftpfs_inode->i_path = ftpfs_build_full_path(dir, fattr);
 	if (!ftpfs_inode->i_path)
 		return -ENOMEM;
 
-	/* set uid, gid, mode, nlinks and size */
+	/* resize netfs cache */
+	if (ftpfs_inode->i_fscache && i_size_read(inode) != fattr->f_size)
+		fscache_resize_cookie(ftpfs_inode->i_fscache, fattr->f_size);
+
+	/* update uid, gid, mode, nlinks and size */
 	inode_init_owner(&init_user_ns, inode, dir, fattr->f_mode);
 	set_nlink(inode, fattr->f_nlinks);
 	i_size_write(inode, fattr->f_size);
 
-	/* create or resize netfs cache */
-	if (ftpfs_inode->i_fscache)
-		fscache_resize_cookie(ftpfs_inode->i_fscache, fattr->f_size);
-	else
-		ftpfs_cache_inode_get_cookie(inode);
-
-	/* set time */
+	/* update time */
 	if (fattr->f_time) {
 		inode->i_atime.tv_sec = inode->i_mtime.tv_sec = inode->i_ctime.tv_sec = fattr->f_time;
 		inode->i_atime.tv_nsec = inode->i_mtime.tv_nsec = inode->i_ctime.tv_nsec = 0;
-	}
-
-	/* set inode operations */
-	if (S_ISDIR(inode->i_mode)) {
-		inode->i_op = &ftpfs_dir_iops;
-		inode->i_fop = &ftpfs_dir_fops;
-		inode->i_mapping->a_ops = &ftpfs_dir_aops;
-	} else if (S_ISLNK(inode->i_mode)) {
-		inode->i_op = &ftpfs_symlink_iops;
-		inode_nohighmem(inode);
-	} else {
-		inode->i_op = &ftpfs_file_iops;
-		inode->i_fop = &ftpfs_file_fops;
-		inode->i_mapping->a_ops = &ftpfs_file_aops;
 	}
 
 	return 0;

@@ -163,17 +163,17 @@ static int ftpfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	/* delete file */
 	ret = ftp_delete(session, ftpfs_i(inode)->i_path);
+	if (ret)
+		goto out_session;
 
-	/* on success, invalidate directory cache */
-	if (ret == 0)
-		ftpfs_i(dir)->i_expires = jiffies;
-
-	/* unlock FTP session */
-	ftp_session_unlock(session);
+	/* invalidate directory cache */
+	ftpfs_invalidate_inode_cache(dir);
 
 	/* update inode */
 	inode->i_ctime = dir->i_ctime;
 	inode_dec_link_count(inode);
+out_session:
+	ftp_session_unlock(session);
 out:
 	return ret;
 }
@@ -244,17 +244,17 @@ static int ftpfs_rmdir(struct inode *dir, struct dentry *dentry)
 
 	/* delete directory */
 	ret = ftp_rmdir(session, ftpfs_i(inode)->i_path);
+	if (ret)
+		goto out_session;
 
-	/* on success, invalidate directory cache */
-	if (ret == 0)
-		ftpfs_i(dir)->i_expires = jiffies;
-
-	/* unlock FTP session */
-	ftp_session_unlock(session);
+	/* invalidate directory cache */
+	ftpfs_invalidate_inode_cache(dir);
 
 	/* update inode */
 	inode->i_ctime = dir->i_ctime;
 	inode_dec_link_count(inode);
+out_session:
+	ftp_session_unlock(session);
 out:
 	return ret;
 }

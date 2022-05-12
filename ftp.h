@@ -98,6 +98,7 @@ int ftp_create(struct ftp_session *session, const char *file_path);
 int ftp_delete(struct ftp_session *session, const char *file_path);
 int ftp_mkdir(struct ftp_session *session, const char *file_path);
 int ftp_rmdir(struct ftp_session *session, const char *file_path);
+int ftp_rename(struct ftp_session *session, const char *old_path, const char *new_path);
 
 /*
  * Check if a session is opened.

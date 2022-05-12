@@ -667,3 +667,33 @@ err:
 	ftp_session_close(session);
 	return ret;
 }
+
+/*
+ * Rename file.
+ */
+int ftp_rename(struct ftp_session *session, const char *old_path, const char *new_path)
+{
+	int ret;
+
+	/* open session */
+	ret = ftp_session_open(session);
+	if (ret)
+		goto err;
+
+	/* send rename from command */
+	if (ftp_cmd(session, "RNFR", old_path) != FTP_STATUS_OK_SO_FAR) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	/* send rename to command */
+	if (ftp_cmd(session, "RNTO", new_path) != FTP_STATUS_OK) {
+		ret = -ENOSPC;
+		goto err;
+	}
+
+	return 0;
+err:
+	ftp_session_close(session);
+	return ret;
+}

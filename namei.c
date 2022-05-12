@@ -154,7 +154,7 @@ static int ftpfs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
 	struct ftp_session *session;
-	int ret;
+	int ret = -EINVAL;
 
 	/* get main session */
 	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
@@ -260,12 +260,65 @@ out:
 }
 
 /*
+ * Rename a file.
+ */
+static int ftpfs_rename(struct user_namespace *mnt_userns, struct inode *old_dir, struct dentry *old_dentry,
+			struct inode *new_dir, struct dentry *new_dentry, unsigned int flags)
+{
+	struct inode *old_inode = d_inode(old_dentry);
+	struct ftp_session *session;
+	struct ftp_fattr new_fattr;
+	char *new_file_path = NULL;
+	size_t new_name_len;
+	int ret = -EINVAL;
+
+	if (flags & ~RENAME_NOREPLACE)
+		goto out;
+
+	/* get main session */
+	session = ftp_session_get_and_lock_main(ftpfs_sb(new_dir->i_sb)->s_ftp_server);
+	if (!session)
+		goto out;
+
+	/* truncate file name */
+	new_name_len = new_dentry->d_name.len;
+	if (new_name_len > FTP_MAX_NAMELEN)
+		new_name_len = FTP_MAX_NAMELEN;
+
+	/* build file path */
+	memset(&new_fattr, 0, sizeof(struct ftp_fattr));
+	memcpy(new_fattr.f_name, new_dentry->d_name.name, new_name_len);
+	new_file_path = ftpfs_build_full_path(new_dir, &new_fattr);
+	if (!new_file_path) {
+		ret = -ENOMEM;
+		goto out_session;
+	}
+
+	/* FTP rename */
+	ret = ftp_rename(session, ftpfs_i(old_inode)->i_path, new_file_path);
+	if (ret)
+		goto out_session;
+
+	/* invalidate old directory and new directory page cache */
+	ftpfs_invalidate_inode_cache(old_dir);
+	if (old_dir != new_dir)
+		ftpfs_invalidate_inode_cache(new_dir);
+
+out_session:
+	ftp_session_unlock(session);
+out:
+	kfree(new_file_path);
+	return ret;
+}
+
+/*
  * FTPFS directory inode operations.
  */
 const struct inode_operations ftpfs_dir_iops = {
-	.lookup			= ftpfs_lookup,
-	.create			= ftpfs_create,
-	.unlink			= ftpfs_unlink,
-	.mkdir			= ftpfs_mkdir,
-	.rmdir			= ftpfs_rmdir,
+	.lookup		= ftpfs_lookup,
+	.create		= ftpfs_create,
+	.unlink		= ftpfs_unlink,
+	.mkdir		= ftpfs_mkdir,
+	.rmdir		= ftpfs_rmdir,
+	.rename		= ftpfs_rename,
 };

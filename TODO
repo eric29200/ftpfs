@@ -1,7 +1,7 @@
 - ctrl-c on file cat a > b kernel oops
-- try to use better connection pool (when to change connection ?)
 - cp doesn't work
 - on server create (= fill super), try to connect to FTP server
+- with 2 connections, "cp a b" use same connection for a and b
 
 - when vi is opened more than 10 seconds, it complains because file has changed
   this is because of time update (local modification time in generic_write_iter != FTP time)

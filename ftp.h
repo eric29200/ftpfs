@@ -36,7 +36,7 @@ struct ftp_session {
 	loff_t			data_pos;				/* data position */
 	char			*buf;					/* session buffer (used to receive/send messages) */
 	struct mutex		mutex;					/* session mutex */
-	struct list_head	list;					/* next session */
+	struct list_head	lru;					/* next session */
 };
 
 /*
@@ -46,7 +46,7 @@ struct ftp_server {
 	char			ftp_sname[FTP_SERVER_MAX_LEN];		/* FTP server name */
 	char			ftp_user[FTP_USER_MAX_LEN];		/* FTP user */
 	char			ftp_passwd[FTP_PASSWD_MAX_LEN];		/* FTP password */
-	struct list_head	ftp_sessions;				/* FTP sessions */
+	struct list_head	ftp_sessions_lru;			/* FTP sessions */
 	struct mutex		ftp_mutex;				/* FTP server mutex */
 };
 

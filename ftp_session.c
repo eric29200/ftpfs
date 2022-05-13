@@ -154,14 +154,21 @@ void ftp_session_close(struct ftp_session *session)
 struct ftp_session *ftp_session_get(struct ftp_server *ftp_server)
 {
 	struct ftp_session *session;
-	struct list_head *pos;
 
-	list_for_each(pos, &ftp_server->ftp_sessions) {
-		session = list_entry(pos, struct ftp_session, list);
-		return session;
+	/* lock FTP server */
+	mutex_lock(&ftp_server->ftp_mutex);
+
+	/* get LRU session */
+	session = list_first_entry_or_null(&ftp_server->ftp_sessions_lru, struct ftp_session, lru);
+	if (session) {
+		list_del(&session->lru);
+		list_add_tail(&session->lru, &ftp_server->ftp_sessions_lru);
 	}
 
-	return NULL;
+	/* unlock FTP server */
+	mutex_unlock(&ftp_server->ftp_mutex);
+
+	return session;
 }
 
 /*
@@ -205,7 +212,7 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 	strncpy(ftp_server->ftp_user, ftp_user, FTP_USER_MAX_LEN - 1);
 	strncpy(ftp_server->ftp_passwd, ftp_passwd, FTP_PASSWD_MAX_LEN - 1);
 	mutex_init(&ftp_server->ftp_mutex);
-	INIT_LIST_HEAD(&ftp_server->ftp_sessions);
+	INIT_LIST_HEAD(&ftp_server->ftp_sessions_lru);
 
 	/* create sessions */
 	for (i = 0; i < nb_connections; i++) {
@@ -217,7 +224,7 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 		}
 
 		/* add session */
-		list_add_tail(&session->list, &ftp_server->ftp_sessions);
+		list_add(&session->lru, &ftp_server->ftp_sessions_lru);
 	}
 
 	return ftp_server;
@@ -234,8 +241,8 @@ void ftp_server_free(struct ftp_server *ftp_server)
 	struct ftp_session *session;
 	struct list_head *pos, *n;
 
-	list_for_each_safe(pos, n, &ftp_server->ftp_sessions) {
-		session = list_entry(pos, struct ftp_session, list);
+	list_for_each_safe(pos, n, &ftp_server->ftp_sessions_lru) {
+		session = list_entry(pos, struct ftp_session, lru);
 		ftp_session_free(session);
 	}
 

@@ -47,7 +47,6 @@ err:
 	SetPageError(page);
 	kunmap(page);
 	unlock_page(page);
-	put_page(page);
 	return ret;
 }
 

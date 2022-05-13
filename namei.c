@@ -23,8 +23,8 @@ int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr 
 	pgoff_t pg_idx = 0;
 	struct page *page;
 
-	/* get and lock main FTP session */
-	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	/* get and lock a session */
+	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session)
 		return -EIO;
 
@@ -72,7 +72,6 @@ out:
 	}
 
 	/* unlock FTP session */
-	ftp_list_end(session, ret);
 	ftp_session_unlock(session);
 	return ret;
 }
@@ -121,12 +120,16 @@ static int ftpfs_create(struct user_namespace *mnt_userns, struct inode *dir,
 	if (!file_path)
 		return -ENOMEM;
 
+	/* get a session */
+	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	if (!session) {
+		ret = -EIO;
+		goto out;
+	}
+
 	/* create file */
-	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	ret = ftp_create(session, file_path);
 	ftp_session_unlock(session);
-
-	/* exit on error */
 	if (ret)
 		goto out;
 
@@ -154,17 +157,18 @@ static int ftpfs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
 	struct ftp_session *session;
-	int ret = -EINVAL;
+	int ret;
 
-	/* get main session */
-	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	/* get a FTP session */
+	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session)
-		goto out;
+		return -EIO;
 
 	/* delete file */
 	ret = ftp_delete(session, ftpfs_i(inode)->i_path);
+	ftp_session_unlock(session);
 	if (ret)
-		goto out_session;
+		return ret;
 
 	/* invalidate directory cache */
 	ftpfs_invalidate_inode_cache(dir);
@@ -172,9 +176,6 @@ static int ftpfs_unlink(struct inode *dir, struct dentry *dentry)
 	/* update inode */
 	inode->i_ctime = dir->i_ctime;
 	inode_dec_link_count(inode);
-out_session:
-	ftp_session_unlock(session);
-out:
 	return ret;
 }
 
@@ -202,12 +203,16 @@ static int ftpfs_mkdir(struct user_namespace *mnt_userns, struct inode *dir, str
 	if (!file_path)
 		return -ENOMEM;
 
+	/* get a FTP session */
+	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	if (!session) {
+		ret = -EIO;
+		goto out;
+	}
+
 	/* create directory */
-	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	ret = ftp_mkdir(session, file_path);
 	ftp_session_unlock(session);
-
-	/* exit on error */
 	if (ret)
 		goto out;
 
@@ -237,15 +242,16 @@ static int ftpfs_rmdir(struct inode *dir, struct dentry *dentry)
 	struct ftp_session *session;
 	int ret;
 
-	/* get main session */
-	session = ftp_session_get_and_lock_main(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	/* get a FTP session */
+	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session)
-		goto out;
+		return -EIO;
 
 	/* delete directory */
 	ret = ftp_rmdir(session, ftpfs_i(inode)->i_path);
+	ftp_session_unlock(session);
 	if (ret)
-		goto out_session;
+		return ret;
 
 	/* invalidate directory cache */
 	ftpfs_invalidate_inode_cache(dir);
@@ -253,9 +259,6 @@ static int ftpfs_rmdir(struct inode *dir, struct dentry *dentry)
 	/* update inode */
 	inode->i_ctime = dir->i_ctime;
 	inode_dec_link_count(inode);
-out_session:
-	ftp_session_unlock(session);
-out:
 	return ret;
 }
 
@@ -270,15 +273,10 @@ static int ftpfs_rename(struct user_namespace *mnt_userns, struct inode *old_dir
 	struct ftp_fattr new_fattr;
 	char *new_file_path = NULL;
 	size_t new_name_len;
-	int ret = -EINVAL;
+	int ret;
 
 	if (flags & ~RENAME_NOREPLACE)
-		goto out;
-
-	/* get main session */
-	session = ftp_session_get_and_lock_main(ftpfs_sb(new_dir->i_sb)->s_ftp_server);
-	if (!session)
-		goto out;
+		return -EINVAL;
 
 	/* truncate file name */
 	new_name_len = new_dentry->d_name.len;
@@ -291,21 +289,27 @@ static int ftpfs_rename(struct user_namespace *mnt_userns, struct inode *old_dir
 	new_file_path = ftpfs_build_full_path(new_dir, &new_fattr);
 	if (!new_file_path) {
 		ret = -ENOMEM;
-		goto out_session;
+		goto out;
+	}
+
+	/* get a FTP session */
+	session = ftp_session_get_locked(ftpfs_sb(new_dir->i_sb)->s_ftp_server);
+	if (!session) {
+		ret = -EIO;
+		goto out;
 	}
 
 	/* FTP rename */
 	ret = ftp_rename(session, ftpfs_i(old_inode)->i_path, new_file_path);
+	ftp_session_unlock(session);
 	if (ret)
-		goto out_session;
+		goto out;
 
 	/* invalidate old directory and new directory page cache */
 	ftpfs_invalidate_inode_cache(old_dir);
 	if (old_dir != new_dir)
 		ftpfs_invalidate_inode_cache(new_dir);
 
-out_session:
-	ftp_session_unlock(session);
 out:
 	kfree(new_file_path);
 	return ret;

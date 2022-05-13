@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
+#include <linux/pagemap.h>
+
 #include "ftp.h"
 
 /*
@@ -163,177 +165,12 @@ err:
 }
 
 /*
- * Start a directory listing.
- */
-int ftp_list_start(struct ftp_session *session, const char *dir, loff_t pos)
-{
-	struct ftp_fattr fattr;
-	int ret, i;
-
-	/* session is opened at correct data offset : just return */
-	if (ftp_session_is_opened(session) && session->data_sock && pos == session->data_pos)
-		return 0;
-
-	/* a data socket is opened at wrong offset : close session */
-	if (session->data_sock && pos != session->data_pos)
-		ftp_session_close(session);
-
-	/* open session */
-	ret = ftp_session_open(session);
-	if (ret)
-		goto err;
-
-	/* open a data socket */
-	ret = ftp_open_data_socket(session, READ);
-	if (ret)
-		goto err;
-
-	/* send list command */
-	if (ftp_cmd(session, "LIST", dir) != FTP_STATUS_OK_INIT) {
-		ret = -ENOSPC;
-		goto err;
-	}
-
-	/* skip first entries */
-	for (i = 0; i < pos; i++) {
-		ret = ftp_list_next(session, &fattr);
-		if (ret < 0)
-			goto err;
-	}
-
-	session->data_pos = pos;
-	return 0;
-err:
-	ftp_session_close(session);
-	return ret;
-}
-
-/*
- * End a directory listing.
- */
-void ftp_list_end(struct ftp_session *session, int err)
-{
-	/* on error, close FTP session */
-	if (err) {
-		ftp_session_close(session);
-		return;
-	}
-
-	/* close data socket */
-	if (ftp_session_is_opened_for_data(session)) {
-		session->data_sock->ops->release(session->data_sock);
-		session->data_sock = NULL;
-
-		/* get FTP reply and disconnect on error */
-		if (ftp_getreply(session) != FTP_STATUS_OK)
-			ftp_session_close(session);
-	}
-}
-
-/*
- * Get next directory entry (this function must be called between ftp_list_start and ftp_list_end).
- */
-int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res)
-{
-	int n;
-
-	/* reset result */
-	memset(fattr_res, 0, sizeof(struct ftp_fattr));
-
-	for (;;) {
-		/* get next line */
-		n = ftp_getline(session, session->data_sock);
-		if (n <= 0)
-			break;
-
-		/* parse directory entry (on error, goto next entry) */
-		if (ftp_parse_dir_entry(session->buf, n, fattr_res) == 0) {
-			session->data_pos++;
-			break;
-		}
-	}
-
-	return n;
-}
-
-/*
- * Start a FTP read command.
- */
-static int ftp_read_start(struct ftp_session *session, const char *file_path, loff_t pos)
-{
-	char nb_buf[64];
-	int ret;
-
-	/* session is opened at correct data offset : just return */
-	if (ftp_session_is_opened_for_data_read(session) && pos == session->data_pos)
-		return 0;
-
-	/* a data socket is opened at wrong offset : close session */
-	if (ftp_session_is_opened_for_data(session))
-		ftp_session_close(session);
-
-	/* open session */
-	ret = ftp_session_open(session);
-	if (ret)
-		goto err;
-
-	/* open a data socket */
-	ret = ftp_open_data_socket(session, READ);
-	if (ret)
-		goto err;
-
-	/* send restore command */
-	if (pos) {
-		snprintf(nb_buf, 64, "%lld", pos);
-		if (ftp_cmd(session, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
-			ret = -ENOSPC;
-			goto err;
-		}
-	}
-
-	/* send retrieve command */
-	if (ftp_cmd(session, "RETR", file_path) != FTP_STATUS_OK_INIT) {
-		ret = -ENOSPC;
-		goto err;
-	}
-
-	session->data_pos = pos;
-	return 0;
-err:
-	ftp_session_close(session);
-	return ret;
-}
-
-/*
- * End a read command.
- */
-static void ftp_read_end(struct ftp_session *session, int err)
-{
-	/* on error, close FTP session */
-	if (err) {
-		ftp_session_close(session);
-		return;
-	}
-
-	/* close data socket */
-	if (ftp_session_is_opened_for_data(session)) {
-		session->data_sock->ops->release(session->data_sock);
-		session->data_sock = NULL;
-
-		/* get FTP reply and disconnect on error */
-		if (ftp_getreply(session) == FTP_STATUS_KO)
-			ftp_session_close(session);
-	}
-}
-
-/*
  * Read next buffer.
  */
 static ssize_t ftp_read_next(struct ftp_session *session, char *buf, size_t count)
 {
 	struct msghdr msg;
 	struct kvec iov;
-	ssize_t ret;
 	loff_t off;
 	int n;
 
@@ -351,7 +188,7 @@ static ssize_t ftp_read_next(struct ftp_session *session, char *buf, size_t coun
 		/* get next buffer */
 		n = ftp_recvmsg(session->data_sock, &msg, &iov);
 		if (n < 0)
-			goto err;
+			return n;
 		if (n == 0)
 			break;
 
@@ -363,128 +200,6 @@ static ssize_t ftp_read_next(struct ftp_session *session, char *buf, size_t coun
 
 	/* return number of bytes read */
 	return off;
-err:
-	ftp_session_close(session);
-	return ret;
-}
-
-
-/*
- * Read from FTP.
- */
-ssize_t ftp_read(struct ftp_session *session, const char *file_path, loff_t pos, struct iov_iter *iter, size_t iter_len)
-{
-	size_t bytes, page_off, npages, req_len, total = 0;
-	struct page **pages;
-	ssize_t ret;
-	char *buf;
-	int i;
-
-	/* get pages */
-	bytes = iov_iter_get_pages_alloc(iter, &pages, iter_len, &page_off);
-	if (bytes < 0)
-		return bytes;
-
-	/* start FTP read */
-	ret = ftp_read_start(session, file_path, pos);
-	if (ret)
-		goto err;
-
-	/* read each page */
-	npages = (bytes + page_off + PAGE_SIZE - 1) / PAGE_SIZE;
-	for (i = 0; i < npages; i++) {
-		/* read next buffer */
-		buf = kmap(pages[i]);
-		req_len = min_t(size_t, bytes, PAGE_SIZE - page_off);
-		ret = ftp_read_next(session, buf + page_off, req_len);
-		kunmap(pages[i]);
-		if (ret < 0)
-			goto err;
-		if (ret == 0)
-			break;
-
-		page_off = 0;
-		total += ret;
-	}
-
-	/* if main session is used, end FTP read */
-	if (session && session->main)
-		ftp_read_end(session, 0);
-
-	return total;
-err:
-	ftp_read_end(session, ret);
-	return ret;
-}
-
-/*
- * Start a FTP write command.
- */
-static int ftp_write_start(struct ftp_session *session, const char *file_path, loff_t pos)
-{
-	char nb_buf[64];
-	int ret;
-
-	/* session is opened at correct data offset : just return */
-	if (ftp_session_is_opened_for_data_write(session) && pos == session->data_pos)
-		return 0;
-
-	/* a data socket is opened at wrong offset : close session */
-	if (ftp_session_is_opened_for_data(session))
-		ftp_session_close(session);
-
-	/* open session */
-	ret = ftp_session_open(session);
-	if (ret)
-		goto err;
-
-	/* open a data socket */
-	ret = ftp_open_data_socket(session, WRITE);
-	if (ret)
-		goto err;
-
-	/* send restore command */
-	if (pos) {
-		snprintf(nb_buf, 64, "%lld", pos);
-		if (ftp_cmd(session, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR) {
-			ret = -ENOSPC;
-			goto err;
-		}
-	}
-
-	/* send store command */
-	if (ftp_cmd(session, "STOR", file_path) != FTP_STATUS_OK_INIT) {
-		ret = -ENOSPC;
-		goto err;
-	}
-
-	session->data_pos = pos;
-	return 0;
-err:
-	ftp_session_close(session);
-	return ret;
-}
-
-/*
- * End a write command.
- */
-static void ftp_write_end(struct ftp_session *session, int err)
-{
-	/* on error, close FTP session */
-	if (err) {
-		ftp_session_close(session);
-		return;
-	}
-
-	/* close data socket */
-	if (ftp_session_is_opened_for_data(session)) {
-		session->data_sock->ops->release(session->data_sock);
-		session->data_sock = NULL;
-
-		/* get FTP reply and disconnect on error */
-		if (ftp_getreply(session) == FTP_STATUS_KO)
-			ftp_session_close(session);
-	}
 }
 
 /*
@@ -494,7 +209,6 @@ static ssize_t ftp_write_next(struct ftp_session *session, char *buf, size_t cou
 {
 	struct msghdr msg;
 	struct kvec iov;
-	ssize_t ret;
 	loff_t off;
 	int n;
 
@@ -514,7 +228,7 @@ static ssize_t ftp_write_next(struct ftp_session *session, char *buf, size_t cou
 		/* send next buffer */
 		n = ftp_sendmsg(session->data_sock, &msg, &iov);
 		if (n < 0)
-			goto err;
+			return n;
 		if (n == 0)
 			break;
 
@@ -526,16 +240,178 @@ static ssize_t ftp_write_next(struct ftp_session *session, char *buf, size_t cou
 
 	/* return number of bytes written */
 	return off;
-err:
-	ftp_session_close(session);
-	return ret;
 }
 
+/*
+ * Get next directory entry.
+ */
+static ssize_t ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res)
+{
+	ssize_t n;
+
+	/* reset result */
+	memset(fattr_res, 0, sizeof(struct ftp_fattr));
+
+	for (;;) {
+		/* get next line */
+		n = ftp_getline(session, session->data_sock);
+		if (n <= 0)
+			break;
+
+		/* parse directory entry (on error, goto next entry) */
+		if (ftp_parse_dir_entry(session->buf, n, fattr_res) == 0) {
+			session->data_pos++;
+			break;
+		}
+	}
+
+	return n;
+
+}
 
 /*
- * Write to FTP.
+ * Start a read request.
  */
-ssize_t ftp_write(struct ftp_session *session, const char *file_path, loff_t pos, struct iov_iter *iter, size_t iter_len)
+static int ftp_read_start(struct ftp_session *session, ino_t ino, const char *file_path, loff_t pos)
+{
+	char nb_buf[64];
+	int ret;
+
+	/* session is opened at correct data offset : just return */
+	if (ftp_session_is_valid(session, ino, FTP_REQUEST_READ, pos))
+		return 0;
+
+	/* a data socket is opened with wrong direction/offset : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
+
+	/* open session */
+	ret = ftp_session_open(session);
+	if (ret)
+		return ret;
+
+	/* open a data socket */
+	ret = ftp_open_data_socket(session);
+	if (ret)
+		return ret;
+
+	/* send restart command */
+	if (pos) {
+		snprintf(nb_buf, 64, "%lld", pos);
+		if (ftp_cmd(session, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR)
+			return -ENOSPC;
+	}
+
+	/* send retrieve command */
+	ret = ftp_cmd(session, "RETR", file_path);
+
+	/* exit on error */
+	if (ret != FTP_STATUS_OK_INIT)
+		return -ENOSPC;
+
+	session->data_request = FTP_REQUEST_READ;
+	session->data_ino = ino;
+	session->data_pos = pos;
+	return 0;
+}
+
+/*
+ * Start a write request.
+ */
+static int ftp_write_start(struct ftp_session *session, ino_t ino, const char *file_path, loff_t pos)
+{
+	char nb_buf[64];
+	int ret;
+
+	/* session is opened at correct data offset : just return */
+	if (ftp_session_is_valid(session, ino, FTP_REQUEST_WRITE, pos))
+		return 0;
+
+	/* a data socket is opened with wrong direction/offset : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
+
+	/* open session */
+	ret = ftp_session_open(session);
+	if (ret)
+		return ret;
+
+	/* open a data socket */
+	ret = ftp_open_data_socket(session);
+	if (ret)
+		return ret;
+
+	/* send restart command */
+	if (pos) {
+		snprintf(nb_buf, 64, "%lld", pos);
+		if (ftp_cmd(session, "REST", nb_buf) != FTP_STATUS_OK_SO_FAR)
+			return -ENOSPC;
+	}
+
+	/* send store command */
+	ret = ftp_cmd(session, "STOR", file_path);
+
+	/* exit on error */
+	if (ret != FTP_STATUS_OK_INIT)
+		return -ENOSPC;
+
+	session->data_request = FTP_REQUEST_WRITE;
+	session->data_ino = ino;
+	session->data_pos = pos;
+	return 0;
+}
+
+/*
+ * Start a directory listing.
+ */
+static int ftp_list_start(struct ftp_session *session, ino_t ino, const char *file_path, loff_t pos)
+{
+	struct ftp_fattr fattr;
+	int ret, i;
+
+	/* session is opened at correct data offset : just return */
+	if (ftp_session_is_valid(session, ino, FTP_REQUEST_LIST, pos))
+		return 0;
+
+	/* a data socket is opened with wrong direction/offset : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
+
+	/* open session */
+	ret = ftp_session_open(session);
+	if (ret)
+		return ret;
+
+	/* open a data socket */
+	ret = ftp_open_data_socket(session);
+	if (ret)
+		return ret;
+
+	/* send LIST command */
+	ret = ftp_cmd(session, "LIST", file_path);
+
+	/* exit on error */
+	if (ret != FTP_STATUS_OK_INIT)
+		return -ENOSPC;
+
+	/* skip first entries */
+	for (i = 0; i < pos; i++) {
+		ret = ftp_list_next(session, &fattr);
+		if (ret < 0)
+			return ret;
+	}
+
+	session->data_request = FTP_REQUEST_LIST;
+	session->data_ino = ino;
+	session->data_pos = pos;
+	return 0;
+}
+
+/*
+ * Read from FTP.
+ */
+ssize_t ftp_read(struct ftp_session *session, const char *file_path, ino_t ino,
+		 loff_t pos, struct iov_iter *iter, size_t iter_len)
 {
 	size_t bytes, page_off, npages, req_len, total = 0;
 	struct page **pages;
@@ -548,21 +424,23 @@ ssize_t ftp_write(struct ftp_session *session, const char *file_path, loff_t pos
 	if (bytes < 0)
 		return bytes;
 
-	/* start FTP write */
-	ret = ftp_write_start(session, file_path, pos);
+	/* get number of pages */
+	npages = (bytes + page_off + PAGE_SIZE - 1) / PAGE_SIZE;
+
+	/* start READ request */
+	ret = ftp_read_start(session, ino, file_path, pos);
 	if (ret)
-		goto err;
+		goto out;
 
 	/* read each page */
-	npages = (bytes + page_off + PAGE_SIZE - 1) / PAGE_SIZE;
 	for (i = 0; i < npages; i++) {
 		/* write next buffer */
 		buf = kmap(pages[i]);
 		req_len = min_t(size_t, bytes, PAGE_SIZE - page_off);
-		ret = ftp_write_next(session, buf + page_off, req_len);
+		ret = ftp_read_next(session, buf + page_off, req_len);
 		kunmap(pages[i]);
 		if (ret < 0)
-			goto err;
+			goto out;
 		if (ret == 0)
 			break;
 
@@ -570,14 +448,77 @@ ssize_t ftp_write(struct ftp_session *session, const char *file_path, loff_t pos
 		total += ret;
 	}
 
-	/* if main session is used, end FTP write */
-	if (session && session->main)
-		ftp_write_end(session, 0);
-
-	return total;
-err:
-	ftp_write_end(session, ret);
+	ret = total;
+out:
+	for (i = 0; i < npages; i++)
+		put_page(pages[i]);
 	return ret;
+}
+
+/*
+ * Write to FTP.
+ */
+ssize_t ftp_write(struct ftp_session *session, const char *file_path, ino_t ino,
+		  loff_t pos, struct iov_iter *iter, size_t iter_len)
+{
+	size_t bytes, page_off, npages, req_len, total = 0;
+	struct page **pages;
+	ssize_t ret;
+	char *buf;
+	int i;
+
+	/* get pages */
+	bytes = iov_iter_get_pages_alloc(iter, &pages, iter_len, &page_off);
+	if (bytes < 0)
+		return bytes;
+
+	/* get number of pages */
+	npages = (bytes + page_off + PAGE_SIZE - 1) / PAGE_SIZE;
+
+	/* start WRITE request */
+	ret = ftp_write_start(session, ino, file_path, pos);
+	if (ret)
+		goto out;
+
+	/* write each page */
+	for (i = 0; i < npages; i++) {
+		/* write next buffer */
+		buf = kmap(pages[i]);
+		req_len = min_t(size_t, bytes, PAGE_SIZE - page_off);
+		ret = ftp_write_next(session, buf + page_off, req_len);
+		kunmap(pages[i]);
+		if (ret < 0)
+			goto out;
+		if (ret == 0)
+			break;
+
+		page_off = 0;
+		total += ret;
+	}
+
+	ret = total;
+out:
+	for (i = 0; i < npages; i++)
+		put_page(pages[i]);
+	return ret;
+}
+
+/*
+ * List an entry in a directory.
+ */
+ssize_t ftp_list(struct ftp_session *session, const char *file_path, ino_t ino, loff_t pos, struct ftp_fattr *res_fattr)
+{
+	int ret;
+
+	/* start LIST request */
+	ret = ftp_list_start(session, ino, file_path, pos);
+	if (ret) {
+		ftp_session_close(session);
+		return ret;
+	}
+
+	/* list next entry */
+	return ftp_list_next(session, res_fattr);
 }
 
 /*
@@ -585,15 +526,12 @@ err:
  */
 int ftp_create(struct ftp_session *session, const char *file_path)
 {
-	int ret;
+	/* a data socket is opened : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
 
-	/* start FTP write */
-	ret = ftp_write_start(session, file_path, 0);
-
-	/* end FTP write */
-	ftp_write_end(session, ret);
-
-	return ret;
+	/* start write */
+	return ftp_write_start(session, -1, file_path, 0);
 }
 
 /*
@@ -602,6 +540,10 @@ int ftp_create(struct ftp_session *session, const char *file_path)
 int ftp_delete(struct ftp_session *session, const char *file_path)
 {
 	int ret;
+
+	/* a data socket is opened : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
 
 	/* open session */
 	ret = ftp_session_open(session);
@@ -627,6 +569,10 @@ int ftp_mkdir(struct ftp_session *session, const char *file_path)
 {
 	int ret;
 
+	/* a data socket is opened : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
+
 	/* open session */
 	ret = ftp_session_open(session);
 	if (ret)
@@ -651,6 +597,10 @@ int ftp_rmdir(struct ftp_session *session, const char *file_path)
 {
 	int ret;
 
+	/* a data socket is opened : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
+
 	/* open session */
 	ret = ftp_session_open(session);
 	if (ret)
@@ -674,6 +624,10 @@ err:
 int ftp_rename(struct ftp_session *session, const char *old_path, const char *new_path)
 {
 	int ret;
+
+	/* a data socket is opened : close session */
+	if (ftp_session_is_opened_for_data(session))
+		ftp_session_close(session);
 
 	/* open session */
 	ret = ftp_session_open(session);

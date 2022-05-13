@@ -9,6 +9,7 @@ static int ftpfs_dir_readpage(struct file *file, struct page *page)
 	struct inode *inode = page->mapping->host;
 	struct ftp_fattr fattr, *fattrs;
 	struct ftp_session *session;
+	loff_t pos;
 	int ret, i;
 
 	/* reset page */
@@ -20,17 +21,12 @@ static int ftpfs_dir_readpage(struct file *file, struct page *page)
 	if (!session)
 		goto err;
 
-	/* start directory listing */
-	ret = ftp_list_start(session, ftpfs_i(inode)->i_path, page_index(page) * FTPFS_DIR_ENTRIES_PER_PAGE);
-	if (ret)
-		goto err_list;
-
 	/* for each directory entry */
-	for (i = 0; i < FTPFS_DIR_ENTRIES_PER_PAGE; i++) {
+	for (i = 0, pos = page_index(page) * FTPFS_DIR_ENTRIES_PER_PAGE; i < FTPFS_DIR_ENTRIES_PER_PAGE; i++, pos++) {
 		/* get next directory entry */
-		ret = ftp_list_next(session, &fattr);
+		ret = ftp_list(session, ftpfs_i(inode)->i_path, inode->i_ino, pos, &fattr);
 		if (ret < 0)
-			goto err_list;
+			goto err;
 		if (ret == 0)
 			goto out;
 
@@ -45,9 +41,6 @@ out:
 	kunmap(page);
 	unlock_page(page);
 	return 0;
-err_list:
-	/* end directory listing */
-	ftp_list_end(session, ret);
 err:
 	/* set page error */
 	ClearPageUptodate(page);
@@ -74,8 +67,8 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 	if (!dir_emit_dots(file, ctx))
 		return 0;
 
-	/* get and lock main FTP session */
-	session = ftp_session_get_and_lock_main(ftpfs_sb(inode->i_sb)->s_ftp_server);
+	/* get a FTP session */
+	session = ftp_session_get_locked(ftpfs_sb(inode->i_sb)->s_ftp_server);
 	if (!session)
 		return -EIO;
 
@@ -89,7 +82,8 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 		page = read_mapping_page(inode->i_mapping, pg_idx, session);
 		if (IS_ERR(page)) {
 			ret = PTR_ERR(page);
-			break;
+			page = NULL;
+			goto out;
 		}
 
 		/* map page */
@@ -126,7 +120,6 @@ out:
 	}
 
 	/* unlock FTP session */
-	ftp_list_end(session, ret);
 	ftp_session_unlock(session);
 	return ret;
 }

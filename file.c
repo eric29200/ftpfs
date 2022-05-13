@@ -8,16 +8,15 @@
 static void ftpfs_req_issue_op(struct netfs_read_subrequest *subreq)
 {
 	struct netfs_read_request *rreq = subreq->rreq;
-	struct ftp_session *session;
+	struct ftp_session *session = rreq->netfs_priv;
 	ssize_t ret = -EINVAL;
 	struct iov_iter iter;
 	loff_t pos;
 	size_t len;
 
-	/* if no session is attached to this request, use main FTP session */
-	session = rreq->netfs_priv;
+	/* if no session is attached to this request, get one */
 	if (!session)
-		session = ftp_session_get_and_lock_main(ftpfs_sb(rreq->inode->i_sb)->s_ftp_server);
+		session = ftp_session_get(ftpfs_sb(rreq->inode->i_sb)->s_ftp_server);
 
 	/* no way to get a FTP session : exit */
 	if (!session)
@@ -29,11 +28,9 @@ static void ftpfs_req_issue_op(struct netfs_read_subrequest *subreq)
 	iov_iter_xarray(&iter, READ, &rreq->mapping->i_pages, pos, len);
 
 	/* read from FTP */
-	ret = ftp_read(session, ftpfs_i(rreq->inode)->i_path, pos, &iter, len);
-
-	/* if main session is used, unlock session */
-	if (session && session->main)
-		ftp_session_unlock(session);
+	ftp_session_lock(session);
+	ret = ftp_read(session, ftpfs_i(rreq->inode)->i_path, rreq->inode->i_ino, pos, &iter, len);
+	ftp_session_unlock(session);
 
 out:
 	netfs_subreq_terminated(subreq, ret, false);
@@ -121,7 +118,7 @@ static void ftpfs_file_write_to_cache_done(void *priv, ssize_t transferred_or_er
 static int ftpfs_file_write_folio_locked(struct folio *folio)
 {
 	struct inode *inode = folio_inode(folio);
-	struct ftp_session *session;
+	struct ftp_session *session = folio->private;
 	struct iov_iter iter;
 	loff_t pos, i_size;
 	size_t len;
@@ -142,17 +139,18 @@ static int ftpfs_file_write_folio_locked(struct folio *folio)
 	folio_wait_fscache(folio);
 	folio_start_writeback(folio);
 
-	/* get FTP session attached to folio or use main FTP session */
-	session = folio->private;
+	/* if no session is attached to this request, get one */
 	if (!session)
-		session = ftp_session_get_and_lock_main(ftpfs_sb(inode->i_sb)->s_ftp_server);
+		session = ftp_session_get(ftpfs_sb(inode->i_sb)->s_ftp_server);
+
+	/* no way to get a FTP session : exit */
+	if (!session)
+		return -EIO;
 
 	/* write to FTP */
-	ret = ftp_write(session, ftpfs_i(inode)->i_path, pos, &iter, len);
-
-	/* if main session is used, unlock it */
-	if (session->main)
-		ftp_session_unlock(session);
+	ftp_session_lock(session);
+	ret = ftp_write(session, ftpfs_i(inode)->i_path, inode->i_ino, pos, &iter, len);
+	ftp_session_unlock(session);
 
 	/* detach session from folio */
 	folio->private = NULL;
@@ -302,19 +300,8 @@ static int ftpfs_file_launder_page(struct page *page)
  */
 static int ftpfs_file_open(struct inode *inode, struct file *file)
 {
-	struct ftp_session *session;
-	int ret;
-
-	/* get and lock a user session */
-	session = ftp_session_get_and_lock_user(ftpfs_sb(inode->i_sb)->s_ftp_server);
-	if (session) {
-		/* try to open it and attach it to the file */
-		ret = ftp_session_open(session);
-		if (ret == 0)
-			file->private_data = session;
-		else
-			ftp_session_unlock(session);
-	}
+	/* get a session */
+	file->private_data = ftp_session_get(ftpfs_sb(inode->i_sb)->s_ftp_server);
 
 	/* mark cookie in use */
 	fscache_use_cookie(ftpfs_i(inode)->i_fscache, file->f_mode & FMODE_WRITE);
@@ -327,7 +314,6 @@ static int ftpfs_file_open(struct inode *inode, struct file *file)
  */
 static int ftpfs_file_release(struct inode *inode, struct file *file)
 {
-	struct ftp_session *session = file->private_data;
 	int version = 0;
 	loff_t i_size;
 
@@ -341,12 +327,6 @@ static int ftpfs_file_release(struct inode *inode, struct file *file)
 		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, &version, &i_size);
 	} else {
 		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, NULL, NULL);
-	}
-
-	/* close file session */
-	if (session) {
-		ftp_session_close(session);
-		ftp_session_unlock(session);
 	}
 
 	return 0;
@@ -369,6 +349,7 @@ const struct file_operations ftpfs_file_fops = {
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
 	.write_iter	= generic_file_write_iter,
+	.mmap		= generic_file_mmap,
 	.fsync		= ftpfs_file_fsync,
 };
 

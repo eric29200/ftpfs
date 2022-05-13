@@ -13,6 +13,10 @@
 #define FTP_STATUS_KO				5			/* command incorrect */
 #define FTP_STATUS_PROTECTED			6			/* command is protected */
 
+#define FTP_REQUEST_READ			1
+#define FTP_REQUEST_WRITE			2
+#define FTP_REQUEST_LIST			3
+
 #define FTP_SERVER_MAX_LEN			256
 #define FTP_USER_MAX_LEN			256
 #define FTP_PASSWD_MAX_LEN			256
@@ -25,10 +29,10 @@
 struct ftp_session {
 	struct ftp_server	*server;				/* FTP server */
 	struct sockaddr_in	saddr;					/* FTP server address */
-	bool			main;					/* is this the main session ? */
 	struct socket		*cmd_sock;				/* command socket */
 	struct socket		*data_sock;				/* data socket */
-	int			data_direction;				/* data direction (READ or WRITE) */
+	ino_t			data_ino;				/* data inode number */
+	int			data_request;				/* data request (READ, WRITE or LIST) */
 	loff_t			data_pos;				/* data position */
 	char			*buf;					/* session buffer (used to receive/send messages) */
 	struct mutex		mutex;					/* session mutex */
@@ -42,8 +46,7 @@ struct ftp_server {
 	char			ftp_sname[FTP_SERVER_MAX_LEN];		/* FTP server name */
 	char			ftp_user[FTP_USER_MAX_LEN];		/* FTP user */
 	char			ftp_passwd[FTP_PASSWD_MAX_LEN];		/* FTP password */
-	struct ftp_session	*ftp_main_session;			/* FTP main session */
-	struct list_head	ftp_sessions;				/* FTP user sessions */
+	struct list_head	ftp_sessions;				/* FTP sessions */
 	struct mutex		ftp_mutex;				/* FTP server mutex */
 };
 
@@ -83,17 +86,16 @@ void ftp_server_free(struct ftp_server *ftp_server);
 int ftp_session_open(struct ftp_session *session);
 void ftp_session_close(struct ftp_session *session);
 void ftp_session_free(struct ftp_session *session);
-int ftp_open_data_socket(struct ftp_session *session, int direction);
-struct ftp_session *ftp_session_get_and_lock_main(struct ftp_server *ftp_server);
-struct ftp_session *ftp_session_get_and_lock_user(struct ftp_server *ftp_server);
-void ftp_session_unlock(struct ftp_session *session);
+struct ftp_session *ftp_session_get(struct ftp_server *ftp_server);
+struct ftp_session *ftp_session_get_locked(struct ftp_server *ftp_server);
+int ftp_open_data_socket(struct ftp_session *session);
 
 /* FTP command prototypes (defined in ftp_cmd.c) */
-int ftp_list_start(struct ftp_session *session, const char *dir, loff_t pos);
-void ftp_list_end(struct ftp_session *session, int err);
-int ftp_list_next(struct ftp_session *session, struct ftp_fattr *fattr_res);
-ssize_t ftp_read(struct ftp_session *session, const char *file_path, loff_t pos, struct iov_iter *iter, size_t iter_len);
-ssize_t ftp_write(struct ftp_session *session, const char *file_path, loff_t pos, struct iov_iter *iter, size_t iter_len);
+ssize_t ftp_read(struct ftp_session *session, const char *file_path, ino_t ino,
+		 loff_t pos, struct iov_iter *iter, size_t iter_len);
+ssize_t ftp_write(struct ftp_session *session, const char *file_path, ino_t ino,
+		  loff_t pos, struct iov_iter *iter, size_t iter_len);
+ssize_t ftp_list(struct ftp_session *session, const char *file_path, ino_t ino, loff_t pos, struct ftp_fattr *res_fattr);
 int ftp_create(struct ftp_session *session, const char *file_path);
 int ftp_delete(struct ftp_session *session, const char *file_path);
 int ftp_mkdir(struct ftp_session *session, const char *file_path);
@@ -105,7 +107,8 @@ int ftp_rename(struct ftp_session *session, const char *old_path, const char *ne
  */
 static inline bool ftp_session_is_opened(struct ftp_session *session)
 {
-	return session && session->cmd_sock && session->cmd_sock->ops;
+	return session && session->cmd_sock
+		&& session->cmd_sock->ops;
 }
 
 /*
@@ -113,23 +116,36 @@ static inline bool ftp_session_is_opened(struct ftp_session *session)
  */
 static inline bool ftp_session_is_opened_for_data(struct ftp_session *session)
 {
-	return ftp_session_is_opened(session) && session->data_sock && session->data_sock->ops;
+	return ftp_session_is_opened(session)
+		&& session->data_sock
+		&& session->data_sock->ops;
 }
 
 /*
- * Check if a session is opened for data READ transfert.
+ * Check if a session is valid for a request.
  */
-static inline bool ftp_session_is_opened_for_data_read(struct ftp_session *session)
+static inline bool ftp_session_is_valid(struct ftp_session *session, ino_t ino, int request, loff_t pos)
 {
-	return ftp_session_is_opened_for_data(session) && session->data_direction == READ;
+	return ftp_session_is_opened_for_data(session)
+		&& session->data_ino == ino
+		&& session->data_request == request
+		&& session->data_pos == pos;
 }
 
 /*
- * Check if a session is opened for data WRITE transfert.
+ * Lock a FTP session.
  */
-static inline bool ftp_session_is_opened_for_data_write(struct ftp_session *session)
+static inline void ftp_session_lock(struct ftp_session *session)
 {
-	return ftp_session_is_opened_for_data(session) && session->data_direction == WRITE;
+	mutex_lock(&session->mutex);
+}
+
+/*
+ * Unlock a FTP session.
+ */
+static inline void ftp_session_unlock(struct ftp_session *session)
+{
+	mutex_unlock(&session->mutex);
 }
 
 #endif

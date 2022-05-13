@@ -1,6 +1,5 @@
 - ctrl-c on file cat a > b kernel oops
 - cp doesn't work
-- on server create (= fill super), try to connect to FTP server
 - with 2 connections, "cp a b" use same connection for a and b
 
 - when vi is opened more than 10 seconds, it complains because file has changed

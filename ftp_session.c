@@ -199,7 +199,7 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 	int ret, i;
 
 	/* check parameters */
-	if (!ftp_sname || !ftp_user || !ftp_passwd)
+	if (!ftp_sname || !ftp_user || !ftp_passwd || !nb_connections)
 		return ERR_PTR(-EINVAL);
 
 	/* allocate FTP server */
@@ -225,6 +225,13 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 
 		/* add session */
 		list_add(&session->lru, &ftp_server->ftp_sessions_lru);
+
+		/* open first session, to check if server is reachable */
+		if (i == 0) {
+			ret = ftp_session_open(session);
+			if (ret)
+				goto err;
+		}
 	}
 
 	return ftp_server;

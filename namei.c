@@ -32,8 +32,11 @@ int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr 
 	for (pg_idx = 0;; pg_idx++) {
 		/* get page */
 		page = read_mapping_page(dir->i_mapping, pg_idx, session);
-		if (IS_ERR(page))
-			break;
+		if (IS_ERR(page)) {
+			ret = PTR_ERR(page);
+			page = NULL;
+			goto out;
+		}
 
 		/* map page */
 		fattrs = kmap(page);

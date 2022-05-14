@@ -151,6 +151,11 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	if (!sbi)
 		return -ENOMEM;
 
+	/* set up backing device */
+	ret = super_setup_bdi(sb);
+	if (ret)
+		goto err_bdi;
+
 	/* create netfs cache volume */
 	ret = ftpfs_cache_super_get_volume(sb, fc->source);
 	if (ret)
@@ -167,6 +172,7 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	/* set super block */
 	sb->s_op = &ftpfs_sops;
 	sb->s_d_op = &ftpfs_dops;
+	sb->s_flags |= SB_ACTIVE | SB_DIRSYNC | SB_SYNCHRONOUS;
 	sbi->s_opt = ftpfs_ctx(fc)->fs_opt;
 
 	/* create root inode */
@@ -197,6 +203,9 @@ err_release_cache:
 	goto err;
 err_cache:
 	pr_err("FTPFS : can't create netfs cache\n");
+	goto err;
+err_bdi:
+	pr_err("FTPFS : can't setup backing device\n");
 err:
 	kfree(sbi);
 	sb->s_fs_info = NULL;

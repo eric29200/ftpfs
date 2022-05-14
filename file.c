@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <linux/swap.h>
+#include <linux/backing-dev.h>
 #include "ftpfs.h"
 
 /*
@@ -317,12 +318,12 @@ static int ftpfs_file_release(struct inode *inode, struct file *file)
 	int version = 0;
 	loff_t i_size;
 
+	/* sync file */
+	if (file->f_mode & FMODE_WRITE)
+		vfs_fsync(file, 0);
+
 	/* mark cookie unused */
 	if (file->f_mode & FMODE_WRITE) {
-		/* invalidate inode pages (to write them on disk) */
-		invalidate_inode_pages2(inode->i_mapping);
-
-		/* mark cookie unused */
 		i_size = i_size_read(inode);
 		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, &version, &i_size);
 	} else {

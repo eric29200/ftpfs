@@ -1,6 +1,5 @@
-- ctrl-c on file cat a > b kernel oops
 - cp doesn't work
-- with 2 connections, "cp a b" use same connection for a and b
+- with 2 connections, "cp a b" use same connection for a and b -> very slow
 
 - when vi is opened more than 10 seconds, it complains because file has changed
   this is because of time update (local modification time in generic_write_iter != FTP time)

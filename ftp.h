@@ -36,6 +36,7 @@ struct ftp_session {
 	loff_t			data_pos;				/* data position */
 	char			*buf;					/* session buffer (used to receive/send messages) */
 	struct mutex		mutex;					/* session mutex */
+	atomic_t		n_active;				/* number of tasks using this session */
 	struct list_head	lru;					/* next session */
 };
 
@@ -86,8 +87,10 @@ void ftp_server_free(struct ftp_server *ftp_server);
 int ftp_session_open(struct ftp_session *session);
 void ftp_session_close(struct ftp_session *session);
 void ftp_session_free(struct ftp_session *session);
-struct ftp_session *ftp_session_get(struct ftp_server *ftp_server);
-struct ftp_session *ftp_session_get_locked(struct ftp_server *ftp_server);
+struct ftp_session *ftp_session_acquire(struct ftp_server *ftp_server);
+struct ftp_session *ftp_session_acquire_locked(struct ftp_server *ftp_server);
+void ftp_session_release(struct ftp_session *session);
+void ftp_session_release_unlock(struct ftp_session *session);
 int ftp_open_data_socket(struct ftp_session *session);
 
 /* FTP command prototypes (defined in ftp_cmd.c) */

@@ -24,7 +24,7 @@ int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr 
 	struct page *page;
 
 	/* get and lock a session */
-	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	session = ftp_session_acquire_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session)
 		return -EIO;
 
@@ -75,7 +75,7 @@ out:
 	}
 
 	/* unlock FTP session */
-	ftp_session_unlock(session);
+	ftp_session_release_unlock(session);
 	return ret;
 }
 
@@ -124,7 +124,7 @@ static int ftpfs_create(struct user_namespace *mnt_userns, struct inode *dir,
 		return -ENOMEM;
 
 	/* get a session */
-	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	session = ftp_session_acquire_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session) {
 		ret = -EIO;
 		goto out;
@@ -132,7 +132,7 @@ static int ftpfs_create(struct user_namespace *mnt_userns, struct inode *dir,
 
 	/* create file */
 	ret = ftp_create(session, file_path);
-	ftp_session_unlock(session);
+	ftp_session_release_unlock(session);
 	if (ret)
 		goto out;
 
@@ -163,13 +163,13 @@ static int ftpfs_unlink(struct inode *dir, struct dentry *dentry)
 	int ret;
 
 	/* get a FTP session */
-	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	session = ftp_session_acquire_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session)
 		return -EIO;
 
 	/* delete file */
 	ret = ftp_delete(session, ftpfs_i(inode)->i_path);
-	ftp_session_unlock(session);
+	ftp_session_release_unlock(session);
 	if (ret)
 		return ret;
 
@@ -207,7 +207,7 @@ static int ftpfs_mkdir(struct user_namespace *mnt_userns, struct inode *dir, str
 		return -ENOMEM;
 
 	/* get a FTP session */
-	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	session = ftp_session_acquire_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session) {
 		ret = -EIO;
 		goto out;
@@ -215,7 +215,7 @@ static int ftpfs_mkdir(struct user_namespace *mnt_userns, struct inode *dir, str
 
 	/* create directory */
 	ret = ftp_mkdir(session, file_path);
-	ftp_session_unlock(session);
+	ftp_session_release_unlock(session);
 	if (ret)
 		goto out;
 
@@ -246,13 +246,13 @@ static int ftpfs_rmdir(struct inode *dir, struct dentry *dentry)
 	int ret;
 
 	/* get a FTP session */
-	session = ftp_session_get_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
+	session = ftp_session_acquire_locked(ftpfs_sb(dir->i_sb)->s_ftp_server);
 	if (!session)
 		return -EIO;
 
 	/* delete directory */
 	ret = ftp_rmdir(session, ftpfs_i(inode)->i_path);
-	ftp_session_unlock(session);
+	ftp_session_release_unlock(session);
 	if (ret)
 		return ret;
 
@@ -296,7 +296,7 @@ static int ftpfs_rename(struct user_namespace *mnt_userns, struct inode *old_dir
 	}
 
 	/* get a FTP session */
-	session = ftp_session_get_locked(ftpfs_sb(new_dir->i_sb)->s_ftp_server);
+	session = ftp_session_acquire_locked(ftpfs_sb(new_dir->i_sb)->s_ftp_server);
 	if (!session) {
 		ret = -EIO;
 		goto out;
@@ -304,7 +304,7 @@ static int ftpfs_rename(struct user_namespace *mnt_userns, struct inode *old_dir
 
 	/* FTP rename */
 	ret = ftp_rename(session, ftpfs_i(old_inode)->i_path, new_file_path);
-	ftp_session_unlock(session);
+	ftp_session_release_unlock(session);
 	if (ret)
 		goto out;
 

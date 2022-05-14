@@ -1,8 +1,5 @@
 - cp doesn't work
-- with 2 connections, "cp a b" use same connection for a and b -> very slow
 
 - when vi is opened more than 10 seconds, it complains because file has changed
   this is because of time update (local modification time in generic_write_iter != FTP time)
   seems difficult = post a message on knb
-
-- vi opens 2 files in edition mode (for example a and a~ : so 2 connections are used = one user and one main connection)

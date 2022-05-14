@@ -67,7 +67,7 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 		return 0;
 
 	/* get a FTP session */
-	session = ftp_session_get_locked(ftpfs_sb(inode->i_sb)->s_ftp_server);
+	session = ftp_session_acquire_locked(ftpfs_sb(inode->i_sb)->s_ftp_server);
 	if (!session)
 		return -EIO;
 
@@ -119,7 +119,7 @@ out:
 	}
 
 	/* unlock FTP session */
-	ftp_session_unlock(session);
+	ftp_session_release_unlock(session);
 	return ret;
 }
 

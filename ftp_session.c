@@ -54,6 +54,7 @@ static struct ftp_session *ftp_session_create(struct ftp_server *ftp_server)
 	/* init session */
 	session->server = ftp_server;
 	mutex_init(&session->mutex);
+	atomic_set(&session->n_active, 0);
 
 	return session;
 err:
@@ -151,16 +152,30 @@ void ftp_session_close(struct ftp_session *session)
 /*
  * Get a FTP session.
  */
-struct ftp_session *ftp_session_get(struct ftp_server *ftp_server)
+struct ftp_session *ftp_session_acquire(struct ftp_server *ftp_server)
 {
-	struct ftp_session *session;
+	struct ftp_session *session = NULL, *entry;
+	struct list_head *pos;
+	int n_active;
 
 	/* lock FTP server */
 	mutex_lock(&ftp_server->ftp_mutex);
 
-	/* get LRU session */
-	session = list_first_entry_or_null(&ftp_server->ftp_sessions_lru, struct ftp_session, lru);
+	/* get session with minimum active tasks */
+	list_for_each(pos, &ftp_server->ftp_sessions_lru) {
+		entry = list_entry(pos, struct ftp_session, lru);
+		n_active = atomic_read(&entry->n_active);
+
+		if (!session || n_active < atomic_read(&session->n_active))
+			session = entry;
+
+		if (!n_active)
+			break;
+	}
+
+	/* move session to end of LRU */
 	if (session) {
+		atomic_inc(&session->n_active);
 		list_del(&session->lru);
 		list_add_tail(&session->lru, &ftp_server->ftp_sessions_lru);
 	}
@@ -174,12 +189,12 @@ struct ftp_session *ftp_session_get(struct ftp_server *ftp_server)
 /*
  * Get and lock a FTP session.
  */
-struct ftp_session *ftp_session_get_locked(struct ftp_server *ftp_server)
+struct ftp_session *ftp_session_acquire_locked(struct ftp_server *ftp_server)
 {
 	struct ftp_session *session;
 
 	/* get a session */
-	session = ftp_session_get(ftp_server);
+	session = ftp_session_acquire(ftp_server);
 	if (!session)
 		return NULL;
 
@@ -188,6 +203,24 @@ struct ftp_session *ftp_session_get_locked(struct ftp_server *ftp_server)
 
 	return session;
 }
+
+/*
+ * Release a FTP session.
+ */
+void ftp_session_release(struct ftp_session *session)
+{
+	atomic_dec(&session->n_active);
+}
+
+/*
+ * Release and unlock a FTP session.
+ */
+void ftp_session_release_unlock(struct ftp_session *session)
+{
+	atomic_dec(&session->n_active);
+	mutex_unlock(&session->mutex);
+}
+
 /*
  * Create a FTP server.
  */

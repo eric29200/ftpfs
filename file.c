@@ -15,11 +15,7 @@ static void ftpfs_req_issue_op(struct netfs_read_subrequest *subreq)
 	loff_t pos;
 	size_t len;
 
-	/* if no session is attached to this request, get one */
-	if (!session)
-		session = ftp_session_get(ftpfs_sb(rreq->inode->i_sb)->s_ftp_server);
-
-	/* no way to get a FTP session : exit */
+	/* no FTP session : exit */
 	if (!session)
 		goto out;
 
@@ -140,11 +136,7 @@ static int ftpfs_file_write_folio_locked(struct folio *folio)
 	folio_wait_fscache(folio);
 	folio_start_writeback(folio);
 
-	/* if no session is attached to this request, get one */
-	if (!session)
-		session = ftp_session_get(ftpfs_sb(inode->i_sb)->s_ftp_server);
-
-	/* no way to get a FTP session : exit */
+	/* no session : exit */
 	if (!session)
 		return -EIO;
 
@@ -302,7 +294,7 @@ static int ftpfs_file_launder_page(struct page *page)
 static int ftpfs_file_open(struct inode *inode, struct file *file)
 {
 	/* get a session */
-	file->private_data = ftp_session_get(ftpfs_sb(inode->i_sb)->s_ftp_server);
+	file->private_data = ftp_session_acquire(ftpfs_sb(inode->i_sb)->s_ftp_server);
 
 	/* mark cookie in use */
 	fscache_use_cookie(ftpfs_i(inode)->i_fscache, file->f_mode & FMODE_WRITE);
@@ -315,6 +307,7 @@ static int ftpfs_file_open(struct inode *inode, struct file *file)
  */
 static int ftpfs_file_release(struct inode *inode, struct file *file)
 {
+	struct ftp_session *session = file->private_data;
 	int version = 0;
 	loff_t i_size;
 
@@ -329,6 +322,10 @@ static int ftpfs_file_release(struct inode *inode, struct file *file)
 	} else {
 		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, NULL, NULL);
 	}
+
+	/* release FTP session */
+	if (session)
+		ftp_session_release(session);
 
 	return 0;
 }

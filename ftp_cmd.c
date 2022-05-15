@@ -388,7 +388,7 @@ static int ftp_list_start(struct ftp_session *session, ino_t ino, const char *fi
 		return ret;
 
 	/* send LIST command */
-	ret = ftp_cmd(session, "LIST", file_path);
+	ret = ftp_cmd(session, "LIST -a", file_path);
 
 	/* exit on error */
 	if (ret != FTP_STATUS_OK_INIT)

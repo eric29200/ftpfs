@@ -62,18 +62,14 @@ static int ftpfs_readdir(struct file *file, struct dir_context *ctx)
 	struct page *page;
 	pgoff_t pg_idx;
 
-	/* emit "." and ".." */
-	if (!dir_emit_dots(file, ctx))
-		return 0;
-
 	/* get a FTP session */
 	session = ftp_session_acquire_locked(ftpfs_sb(inode->i_sb)->s_ftp_server);
 	if (!session)
 		return -EIO;
 
 	/* compute start page */
-	pg_idx = (ctx->pos - 2) / FTPFS_DIR_ENTRIES_PER_PAGE;
-	i = (ctx->pos - 2) % FTPFS_DIR_ENTRIES_PER_PAGE;
+	pg_idx = ctx->pos / FTPFS_DIR_ENTRIES_PER_PAGE;
+	i = ctx->pos % FTPFS_DIR_ENTRIES_PER_PAGE;
 
 	/* for each page */
 	for (;; pg_idx++, i = 0) {

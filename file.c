@@ -128,6 +128,10 @@ static int ftpfs_file_write_folio_locked(struct folio *folio)
 	if (pos >= i_size)
 		return 0;
 
+	/* no session : exit */
+	if (!session)
+		return -EIO;
+
 	/* init xarray */
 	len = min_t(loff_t, i_size - pos, len);
 	iov_iter_xarray(&iter, WRITE, &folio_mapping(folio)->i_pages, pos, len);
@@ -135,10 +139,6 @@ static int ftpfs_file_write_folio_locked(struct folio *folio)
 	/* wait for netfs cache */
 	folio_wait_fscache(folio);
 	folio_start_writeback(folio);
-
-	/* no session : exit */
-	if (!session)
-		return -EIO;
 
 	/* write to FTP */
 	ftp_session_lock(session);

@@ -87,7 +87,7 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 	return inode;
 err:
 	if (inode)
-		iget_failed(inode);
+		iput(inode);
 	return ERR_PTR(ret);
 }
 

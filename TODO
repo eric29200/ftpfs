@@ -1,5 +1,3 @@
-- cp doesn't work
-
 - when vi is opened more than 10 seconds, it complains because file has changed
   this is because of time update (local modification time in generic_write_iter != FTP time)
   seems difficult = post a message on knb

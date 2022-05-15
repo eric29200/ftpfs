@@ -144,3 +144,20 @@ int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr
 
 	return 0;
 }
+
+/*
+ * Get inode attributes.
+ */
+int ftpfs_getattr(struct user_namespace *mnt_userns, const struct path *path,
+		  struct kstat *stat, u32 request_mask, unsigned int flags)
+{
+	struct inode *inode = d_inode(path->dentry);
+
+	generic_fillattr(&init_user_ns, inode, stat);
+
+	/* fake number of 512 blocks */
+	stat->blksize = 512;
+	stat->blocks = (i_size_read(inode) + 512 - 1) >> 9;
+
+	return 0;
+}

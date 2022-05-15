@@ -42,5 +42,6 @@ static const char *ftpfs_get_link(struct dentry *dentry, struct inode *inode, st
  * FTPFS symbolic link inode operations.
  */
 const struct inode_operations ftpfs_symlink_iops = {
+	.getattr	= ftpfs_getattr,
 	.get_link	= ftpfs_get_link,
 };

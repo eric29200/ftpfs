@@ -355,7 +355,7 @@ const struct file_operations ftpfs_file_fops = {
  * FTPFS file inode operations.
  */
 const struct inode_operations ftpfs_file_iops = {
-
+	.getattr		= ftpfs_getattr,
 };
 
 /*

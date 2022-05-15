@@ -322,6 +322,7 @@ out:
  * FTPFS directory inode operations.
  */
 const struct inode_operations ftpfs_dir_iops = {
+	.getattr	= ftpfs_getattr,
 	.lookup		= ftpfs_lookup,
 	.create		= ftpfs_create,
 	.unlink		= ftpfs_unlink,

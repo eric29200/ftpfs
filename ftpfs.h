@@ -69,6 +69,8 @@ struct inode *ftpfs_iget(struct super_block *sb, struct inode *dir, struct ftp_f
 int ftpfs_refresh_inode(struct inode *inode, struct inode *dir, struct ftp_fattr *fattr);
 void ftpfs_invalidate_inode_cache(struct inode *inode);
 char *ftpfs_build_full_path(struct inode *dir, struct ftp_fattr *fattr);
+int ftpfs_getattr(struct user_namespace *mnt_userns, const struct path *path,
+		  struct kstat *stat, u32 request_mask, unsigned int flags);
 
 /* FTPFS name resolution prototypes (defined in namei.c) */
 int ftpfs_find_entry(struct inode *dir, struct dentry *dentry, struct ftp_fattr *fattr_res);

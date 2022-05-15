@@ -1,16 +1,18 @@
 # Linux Kernel FTP file system
 
-This is a read-only linux kernel implementation of a FTP file system.
+This is a linux kernel implementation of a FTP file system.
 
 Example :
 
     `mount -t ftpfs ftp.fr.debian.org -o username=anonymous,password=anonymous,cache_timeout_sec=10,nb_connections=3 /mnt/ftp/`
     
-In this file system, inodes are identified by full path.
-Read functions (readdir/read) use page cache buffer. Since there is no notification on file change with FTP protocol, the page buffer cache and the inode are revalidated each 10 seconds. Dentries must also be revalidated at each access.
+In this file system, inodes are identified by absolute path.
 
-For directory listing and name resolution (readdir/find_entry), the file system uses only one connection (the main connection/session). Because FTP session can't handle parallel requests, the FTP connection/session is locked in these functions.
+Regular files use netfs cache facility and directories use page cache buffer.
+Since there is no notification on file change with FTP protocol, inodes (and page cache) need to be revalidated after 10 second. The revalidation occurs on next inode access (= on dentry revalidation).
 
-For regular file, the filesystem uses a pool of FTP connections (number of connections is defined by the parameter nb_connections).
-When a process opens a file, the filesystem try to obtain/lock a free FTP connection. On success, this connection will be used to read the file and will be released on file closure. With this exclusive connection, full sequential read of a file (for example copy) can be done with only one FTP request (RETR command).
-If no free FTP connection is available, the file uses the main/shared connection. But read will be much slower, since the RETR request will be restarted on each page read.
+The filesystem is synchronous (sb->s_flags |= SYNCHRONOUS) because we want to push file changes on FTP as soon as possible.
+
+The filesystem uses a pool of FTP sessions and use inactive sessions in priority. If all sessions are active, sessions can be shared between processes but it's much slower because a single FTP session can't handle parallel requests.
+For example, if a file copy uses 2 different sessions for files "src" and "dst", ftpfs can achieve real copy with only 2 FTP requests (RETR to read "src" sequentially and STOR to write "dst" sequentially).
+But if the file copy shares the same session between read and write, ftpfs will have to stop RETR/STOR request after each read()/write() system call.

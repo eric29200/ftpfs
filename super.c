@@ -172,7 +172,7 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	/* set super block */
 	sb->s_op = &ftpfs_sops;
 	sb->s_d_op = &ftpfs_dops;
-	sb->s_flags |= SB_RDONLY;
+	sb->s_flags |= SB_ACTIVE | SB_DIRSYNC | SB_SYNCHRONOUS;
 	sbi->s_opt = ftpfs_ctx(fc)->fs_opt;
 
 	/* create root inode */
@@ -370,3 +370,4 @@ static void __exit ftpfs_exit(void)
 module_init(ftpfs_init);
 module_exit(ftpfs_exit);
 MODULE_LICENSE("GPL");
+

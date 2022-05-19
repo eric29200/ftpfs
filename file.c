@@ -88,6 +88,207 @@ static int ftpfs_file_readpage(struct file *file, struct page *page)
 }
 
 /*
+ * Mark a page dirty.
+ */
+static int ftpfs_file_set_page_dirty(struct page *page)
+{
+	struct ftpfs_inode_info *ftpfs_inode = ftpfs_i(page->mapping->host);
+
+	return fscache_set_page_dirty(page, ftpfs_inode->i_fscache);
+}
+
+/*
+ * Handle error on netfs cache write.
+ */
+static void ftpfs_file_write_to_cache_done(void *priv, ssize_t transferred_or_error, bool was_async)
+{
+	struct ftpfs_inode_info *ftpfs_inode = priv;
+	int version = 0;
+
+	if (IS_ERR_VALUE(transferred_or_error) && transferred_or_error != -ENOBUFS)
+		fscache_invalidate(ftpfs_inode->i_fscache, &version, i_size_read(&ftpfs_inode->vfs_inode), 0);
+}
+
+/*
+ * Write a page.
+ */
+static int ftpfs_file_write_folio_locked(struct folio *folio)
+{
+	struct inode *inode = folio_inode(folio);
+	struct ftp_session *session = folio->private;
+	struct iov_iter iter;
+	loff_t pos, i_size;
+	size_t len;
+	int ret;
+
+	/* simultaneous truncate */
+	i_size = i_size_read(inode);
+	pos = folio_pos(folio);
+	len = folio_size(folio);
+	if (pos >= i_size)
+		return 0;
+
+	/* no session : exit */
+	if (!session)
+		return -EIO;
+
+	/* init xarray */
+	len = min_t(loff_t, i_size - pos, len);
+	iov_iter_xarray(&iter, WRITE, &folio_mapping(folio)->i_pages, pos, len);
+
+	/* wait for netfs cache */
+	folio_wait_fscache(folio);
+	folio_start_writeback(folio);
+
+	/* write to FTP */
+	ftp_session_lock(session);
+	ret = ftp_write(session, ftpfs_i(inode)->i_path, inode->i_ino, pos, &iter, len);
+	ftp_session_unlock(session);
+
+	/* detach session from folio */
+	folio->private = NULL;
+
+	/* write to netfs cache */
+	if (ret >= 0 && fscache_cookie_enabled(ftpfs_i(inode)->i_fscache)) {
+		folio_start_fscache(folio);
+		fscache_write_to_cache(ftpfs_i(inode)->i_fscache, folio_mapping(folio), pos, len, i_size,
+				       ftpfs_file_write_to_cache_done, ftpfs_i(inode), true);
+	}
+
+	folio_end_writeback(folio);
+	return ret < 0 ? ret : 0;
+}
+
+/*
+ * Write a page.
+ */
+static int ftpfs_file_writepage(struct page *page, struct writeback_control *wbc)
+{
+	struct folio *folio = page_folio(page);
+	int ret;
+
+	ret = ftpfs_file_write_folio_locked(folio);
+	if (ret < 0) {
+		if (ret == -EAGAIN) {
+			folio_redirty_for_writepage(wbc, folio);
+			ret = 0;
+		} else {
+			mapping_set_error(folio_mapping(folio), ret);
+		}
+	} else {
+		ret = 0;
+	}
+
+	folio_unlock(folio);
+	return ret;
+}
+
+/*
+ * Start a write request.
+ */
+static int ftpfs_file_write_begin(struct file *file, struct address_space *mapping, loff_t pos, unsigned int len,
+				  unsigned int flags, struct page **pagep, void **fsdata)
+{
+	struct folio *folio;
+	int ret;
+
+	ret = netfs_write_begin(file, mapping, pos, len, flags, &folio, fsdata, &ftpfs_req_ops, NULL);
+	if (ret < 0)
+		return ret;
+
+	*pagep = &folio->page;
+	return ret;
+}
+
+/*
+ * End a write request.
+ */
+static int ftpfs_file_write_end(struct file *file, struct address_space *mapping, loff_t pos, unsigned int len,
+				unsigned int copied, struct page *page, void *fsdata)
+{
+	struct folio *folio = page_folio(page);
+	struct inode *inode = mapping->host;
+	loff_t last_pos = pos + copied;
+
+	/* check if folio is up to date */
+	if (!folio_test_uptodate(folio)) {
+		if (copied < len) {
+			copied = 0;
+			goto out;
+		}
+
+		folio_mark_uptodate(folio);
+	}
+
+	/* update inode size */
+	if (last_pos > inode->i_size) {
+		inode_add_bytes(inode, last_pos - inode->i_size);
+		i_size_write(inode, last_pos);
+		fscache_update_cookie(ftpfs_i(inode)->i_fscache, NULL, &last_pos);
+	}
+
+	/* attach FTP session to folio */
+	folio->private = file->private_data;
+
+	folio_mark_dirty(folio);
+out:
+	folio_unlock(folio);
+	folio_put(folio);
+	return copied;
+}
+
+/*
+ * Release a page.
+ */
+static int ftpfs_file_releasepage(struct page *page, gfp_t gfp)
+{
+	struct folio *folio = page_folio(page);
+
+	if (folio_test_private(folio))
+		return 0;
+
+	/* wait for netfs cache */
+	if (folio_test_fscache(folio)) {
+		if (current_is_kswapd() || !(gfp & __GFP_FS))
+			return 0;
+
+		folio_wait_fscache(folio);
+	}
+
+	/* release page */
+	fscache_note_page_release(ftpfs_i(folio_inode(folio))->i_fscache);
+	return 1;
+}
+
+/*
+ * Invalidate a page.
+ */
+static void ftpfs_file_invalidatepage(struct page *page, unsigned int offset, unsigned int len)
+{
+	struct folio *folio = page_folio(page);
+
+	folio_wait_fscache(folio);
+}
+
+/*
+ * Laund a page (write it on disk = to FTP server).
+ */
+static int ftpfs_file_launder_page(struct page *page)
+{
+	struct folio *folio = page_folio(page);
+	int ret;
+
+	if (folio_clear_dirty_for_io(folio)) {
+		ret = ftpfs_file_write_folio_locked(folio);
+		if (ret)
+			return ret;
+	}
+
+	folio_wait_fscache(folio);
+	return 0;
+}
+
+/*
  * Open a file (try to get an exclusive FTP user session).
  */
 static int ftpfs_file_open(struct inode *inode, struct file *file)
@@ -102,20 +303,39 @@ static int ftpfs_file_open(struct inode *inode, struct file *file)
 }
 
 /*
- * Close a file (release FTP user session).
+ * Close a file (close FTP user session and unlock it).
  */
 static int ftpfs_file_release(struct inode *inode, struct file *file)
 {
 	struct ftp_session *session = file->private_data;
+	int version = 0;
+	loff_t i_size;
+
+	/* sync file */
+	if (file->f_mode & FMODE_WRITE)
+		vfs_fsync(file, 0);
 
 	/* mark cookie unused */
-	fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, NULL, NULL);
+	if (file->f_mode & FMODE_WRITE) {
+		i_size = i_size_read(inode);
+		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, &version, &i_size);
+	} else {
+		fscache_unuse_cookie(ftpfs_i(inode)->i_fscache, NULL, NULL);
+	}
 
 	/* release FTP session */
 	if (session)
 		ftp_session_release(session);
 
 	return 0;
+}
+
+/*
+ * Synchronize a file.
+ */
+static int ftpfs_file_fsync(struct file *file, loff_t start, loff_t end, int datasync)
+{
+	return file_write_and_wait_range(file, start, end);
 }
 
 /*
@@ -126,7 +346,9 @@ const struct file_operations ftpfs_file_fops = {
 	.release	= ftpfs_file_release,
 	.llseek		= generic_file_llseek,
 	.read_iter	= generic_file_read_iter,
+	.write_iter	= generic_file_write_iter,
 	.mmap		= generic_file_mmap,
+	.fsync		= ftpfs_file_fsync,
 };
 
 /*
@@ -141,4 +363,12 @@ const struct inode_operations ftpfs_file_iops = {
  */
 const struct address_space_operations ftpfs_file_aops = {
 	.readpage		= ftpfs_file_readpage,
+	.set_page_dirty		= ftpfs_file_set_page_dirty,
+	.writepage		= ftpfs_file_writepage,
+	.write_begin		= ftpfs_file_write_begin,
+	.write_end		= ftpfs_file_write_end,
+	.releasepage		= ftpfs_file_releasepage,
+	.invalidatepage		= ftpfs_file_invalidatepage,
+	.launder_page		= ftpfs_file_launder_page,
 };
+

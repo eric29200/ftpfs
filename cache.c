@@ -48,7 +48,7 @@ void ftpfs_cache_inode_get_cookie(struct inode *inode)
 
 	/* get cookie */
 	ftpfs_inode->i_fscache = fscache_acquire_cookie(sbi->s_fscache, 0,
-							ftpfs_inode->i_path, strlen(ftpfs_inode->i_path),
+							&inode->i_ino, sizeof(inode->i_ino),
 							&version, sizeof(version),
 							i_size_read(inode));
 }

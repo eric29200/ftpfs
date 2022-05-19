@@ -96,7 +96,14 @@ int ftp_open_data_socket(struct ftp_session *session);
 /* FTP command prototypes (defined in ftp_cmd.c) */
 ssize_t ftp_read(struct ftp_session *session, const char *file_path, ino_t ino,
 		 loff_t pos, struct iov_iter *iter, size_t iter_len);
+ssize_t ftp_write(struct ftp_session *session, const char *file_path, ino_t ino,
+		  loff_t pos, struct iov_iter *iter, size_t iter_len);
 ssize_t ftp_list(struct ftp_session *session, const char *file_path, ino_t ino, loff_t pos, struct ftp_fattr *res_fattr);
+int ftp_create(struct ftp_session *session, const char *file_path);
+int ftp_delete(struct ftp_session *session, const char *file_path);
+int ftp_mkdir(struct ftp_session *session, const char *file_path);
+int ftp_rmdir(struct ftp_session *session, const char *file_path);
+int ftp_rename(struct ftp_session *session, const char *old_path, const char *new_path);
 
 /*
  * Check if a session is opened.
@@ -145,3 +152,4 @@ static inline void ftp_session_unlock(struct ftp_session *session)
 }
 
 #endif
+

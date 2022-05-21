@@ -173,6 +173,7 @@ static int ftpfs_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_op = &ftpfs_sops;
 	sb->s_d_op = &ftpfs_dops;
 	sb->s_flags |= SB_ACTIVE | SB_DIRSYNC | SB_SYNCHRONOUS;
+	sb->s_maxbytes = LLONG_MAX;
 	sbi->s_opt = ftpfs_ctx(fc)->fs_opt;
 
 	/* create root inode */

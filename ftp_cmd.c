@@ -283,7 +283,7 @@ static int ftp_read_start(struct ftp_session *session, ino_t ino, const char *fi
 
 	/* a data socket is opened with wrong direction/offset : close session */
 	if (ftp_session_is_opened_for_data(session))
-		ftp_session_close(session);
+		ftp_session_close_data(session);
 
 	/* open session */
 	ret = ftp_session_open(session);
@@ -329,7 +329,7 @@ static int ftp_write_start(struct ftp_session *session, ino_t ino, const char *f
 
 	/* a data socket is opened with wrong direction/offset : close session */
 	if (ftp_session_is_opened_for_data(session))
-		ftp_session_close(session);
+		ftp_session_close_data(session);
 
 	/* open session */
 	ret = ftp_session_open(session);
@@ -375,7 +375,7 @@ static int ftp_list_start(struct ftp_session *session, ino_t ino, const char *fi
 
 	/* a data socket is opened with wrong direction/offset : close session */
 	if (ftp_session_is_opened_for_data(session))
-		ftp_session_close(session);
+		ftp_session_close_data(session);
 
 	/* open session */
 	ret = ftp_session_open(session);

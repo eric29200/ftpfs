@@ -86,6 +86,7 @@ struct ftp_server *ftp_server_create(const char *ftp_sname, const char *ftp_user
 void ftp_server_free(struct ftp_server *ftp_server);
 int ftp_session_open(struct ftp_session *session);
 void ftp_session_close(struct ftp_session *session);
+void ftp_session_close_data(struct ftp_session *session);
 void ftp_session_free(struct ftp_session *session);
 struct ftp_session *ftp_session_acquire(struct ftp_server *ftp_server);
 struct ftp_session *ftp_session_acquire_locked(struct ftp_server *ftp_server);

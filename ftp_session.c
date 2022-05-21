@@ -138,14 +138,25 @@ err:
  */
 void ftp_session_close(struct ftp_session *session)
 {
-	if (session->data_sock && session->data_sock->ops)
-		session->data_sock->ops->release(session->data_sock);
+	ftp_session_close_data(session);
 
 	if (session->cmd_sock && session->cmd_sock->ops)
 		session->cmd_sock->ops->release(session->cmd_sock);
 
-	session->data_sock = NULL;
 	session->cmd_sock = NULL;
+}
+
+/*
+ * Close a data session.
+ */
+void ftp_session_close_data(struct ftp_session *session)
+{
+	if (session->data_sock && session->data_sock->ops) {
+		session->data_sock->ops->release(session->data_sock);
+		ftp_getreply(session);
+	}
+
+	session->data_sock = NULL;
 	session->data_pos = 0;
 }
 
